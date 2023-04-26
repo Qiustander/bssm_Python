@@ -1,5 +1,5 @@
 import numpy as np
-from check_argument import CheckArg
+from check_argument import *
 
 class SSModel:
     """
@@ -26,11 +26,11 @@ class SSModel:
         self.check_arg = CheckArg() # initialize the checking class
         self.state_dim = input_dict['state_dim']
 
-    def ssm_ulg(self, y):
+    def ssm_ulg(self):
         """
         Args:
-            y (np.array): Observations as time series (or vector) of length \eqn{n}.
             input_dict:
+            y (np.array): Observations as time series (or vector) of length \eqn{n}.
             obs_mtx (np.array): System matrix Z of the observation equation. Either a vector of length m, a m x n matrix.
             state_mtx (np.array): System matrix T of the state equation. Either a m x m matrix or a m x m x n array.
             state_mtx_lower (np.array): Lower triangular matrix R the state equation. Either a m x k matrix or a m x k x n array.
@@ -45,10 +45,32 @@ class SSModel:
                      theta. It's best to check the internal dimensions with str(model_object) as the dimensions of input arguments can differ from the final dimensions.
                      If any of these components is missing, it is assumed to be constant wrt. the eta.
             prior_fn (object): A function which returns log of prior density given input vector theta.
-            noise_std (np.array): A vector of standard deviations. Either a scalar or a vector of  length n.
+            noise_std (np.array): A vector H of standard deviations. Either a scalar or a vector of  length n.
             state_names (str): A character vector defining the names of the states.
         return:
         """
+        #TODO: first initilize the dictionary with None -> input -> do the checking according to variable name
+
+        n, p = check_y(self.input_dict['y']) # return time length and feature numbers
+
+        # create Z - obs matrix
+        obs_mtx = check_obs_mtx(self.input_dict['obs_mtx'], 1, n)
+        m = obs_mtx.shape[0]
+        self.input_dict['obs_mtx'] = obs_mtx
+
+        # create T - state matrix
+        self.input_dict['state_mtx']  = check_state_mtx(self.input_dict['state_mtx'], m, n)
+
+        # create R - lower state matrix
+        self.input_dict['state_mtx_lower'] = check_mtx_lower(self.input_dict['state_mtx_lower'], m, n)
+
+        self.input_dict['prior_mean'] = check_prior_mean(self.input_dict['prior_mean'], m)
+        self.input_dict['prior_cov'] = check_prior_cov(self.input_dict['prior_cov'], m)
+
+        self.input_dict['input_obs'] = check_input_obs(self.input_dict['input_obs'], 1, n)
+        self.input_dict['input_state'] = check_input_state(self.input_dict['input_state'], m, n)
+
+        self.input_dict['noise_std'] = check_noise_std(self.input_dict['noise_std'], 1, n)
 
         if 'state_names' not in self.input_dict:
             state_names = [f"state {i+1}" for i in range(m)]
@@ -56,8 +78,6 @@ class SSModel:
         if 'init_theta' not in self.input_dict:
             init_theta = np.array([])
             self.input_dict['init_theta'] = init_theta
-
-        #check
 
 
     def ssm_mlg(self):

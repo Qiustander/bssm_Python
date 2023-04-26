@@ -260,7 +260,7 @@ combine_priors <- function(x) {
     parameters = parameters)
 }
 
-
+# can use dict in Python for S3 object in Python
 
 
 is_prior <- function(x) {
