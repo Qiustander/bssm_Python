@@ -1,26 +1,6 @@
 import numpy as np
 
 
-class CheckArg:
-    '''
-    For checking the arguments of the ssm models.
-    '''
-
-    def __init__(self):
-        pass
-
-    def check_all_argument(self, y):
-        """
-
-        Args:
-            y:
-
-        Returns:
-
-        """
-        check_y(y, multivariate=False, distribution="gaussian")
-
-
 def check_y(x, multivariate=False, distribution="gaussian"):
     """
     Args:
@@ -46,16 +26,18 @@ def check_y(x, multivariate=False, distribution="gaussian"):
             if len(x) < 2:
                 raise ValueError("Length of argument y, i.e. number of time points, must be > 1.")
             if distribution != "gaussian" and (np.logical_not(np.isnan(x)) & (x < 0)).any():
-                raise ValueError(f"Negative values not allowed for {distribution} distribution.")
+                raise AttributeError(f"Negative values not allowed for {distribution} distribution.")
             elif distribution in ["negative binomial", "binomial", "poisson"]:
                 finite_x = x[np.isfinite(x)]
                 if np.any((finite_x != finite_x.astype(int))):
-                    raise ValueError(f"Non-integer values not allowed for {distribution} distribution.")
+                    raise AssertionError(f"Non-integer values not allowed for {distribution} distribution.")
         if np.isinf(x).any():
-            raise ValueError("Argument 'y' must contain only finite or NA values.")
+            raise TypeError("Argument 'y' must contain only finite or NA values.")
 
     return x.shape
 
+
+# For basic time series structure
 
 def check_period(x, n):
     if not isinstance(x, int):
@@ -133,9 +115,9 @@ def check_phi(x):
         raise ValueError("Parameter 'phi' must be non-negative.")
 
 
-def check_u(x, y, multivariate=False):
+def check_positive_const(x, y, multivariate=False):
     """
-    Check the matrix of positive constants for non-Gaussian models
+    Check the matrix of positive constants u for non-Gaussian models
      (of same dimensions as y).
     Args:
         x:
@@ -145,24 +127,28 @@ def check_u(x, y, multivariate=False):
     Returns:
 
     """
+    if x is None:
+        x = np.ones((y.shape[0]))
     if (x < 0).any():
         raise ValueError("All values of 'u' must be non-negative.")
     if multivariate:
         if len(x) == 1:
-            x = np.matrix(x).reshape(np.shape(y))
-        if not (isinstance(x, np.matrix) and np.issubdtype(x.dtype, np.number)):
-            raise ValueError("Argument 'u' must be a numeric matrix or multivariate ts object.")
+            x = np.ones(y.shape)
+        if not np.issubdtype(x.dtype, np.number):
+            raise ValueError("Argument 'u' must be a numeric matrix.")
         if not np.array_equal(np.shape(y), np.shape(x)):
             raise ValueError("Dimensions of 'y' and 'u' do not match.")
-    else:
+    else: # univariate
         if len(x) == 1:
             x = np.repeat(x, len(y))
-        if not (isinstance(x, np.ndarray) and np.issubdtype(x.dtype, np.number)):
-            raise ValueError("Argument 'u' must be a numeric vector or ts object.")
+        if not np.issubdtype(x.dtype, np.number):
+            raise ValueError("Argument 'u' must be a numeric vector.")
         if len(x) != len(y):
             raise ValueError("Lengths of 'u' and 'y' do not match.")
     if not np.isfinite(x).all():
         raise ValueError("Argument 'u' must contain only finite values.")
+
+    return x
 
 
 def check_prior(x, name):
@@ -178,8 +164,8 @@ def check_prop(x, name="target"):
 ##### Check input C & D
 
 def check_input_obs(x, p, n):
-    """
-    Check intercept terms \eqn{D_t} for the observations equation, given as a scalar or vector of length n.
+    """Check intercept terms \eqn{D_t} for the observations equation,
+        given as a scalar or vector of length n.
     Args:
         x:
         p:
@@ -189,24 +175,24 @@ def check_input_obs(x, p, n):
 
     """
     if x is None:
-        x = 0 if p == 1 else [[0] * p for _ in range(1)]
+        x = 0 if p == 1 else np.zeros([p, 1])
     else:
-        if not isinstance(x, (int, float, list, tuple)):
+        if not np.issubdtype(x.dtype, np.number):
             raise ValueError("D must be numeric.")
 
         if p == 1:
-            if not (np.size(x) in (1, n)):
+            if not np.size(x) in (1, n):
                 raise ValueError("'D' must be a scalar or length n,"
                                  " where n is the number of observations.")
         else:
-            if not (isinstance(x, (list, tuple)) and len(x) == p and (len(x[0]) in {1, n})):
-                raise ValueError("'D' must be p x 1 or p x n matrix, where p is the number of series.")
+            if not (x.shape[0] == p and (x.shape[-1] in (1, n))):
+                raise ValueError("'D' must be p x 1 or p x n matrix, "
+                                 "where p is the number of series.")
     return x
 
 
 def check_input_state(x, m, n):
-    """
-    Check Intercept terms \eqn{C_t} for the state equation,
+    """Check Intercept terms \eqn{C_t} for the state equation,
     given as a m x 1 or m x n matrix.
     Args:
         x:
@@ -217,19 +203,20 @@ def check_input_state(x, m, n):
 
     """
     if x is None:
-        x = [[0] * m for _ in range(1)]
+        x = np.zeros([m, 1])
     else:
-        if not isinstance(x, (int, float, list, tuple)):
+        if not np.issubdtype(x.dtype, np.number):
             raise ValueError("C must be numeric.")
 
-        if not (isinstance(x, (list, tuple)) and len(x) == m and (len(x[0]) in {1, n})):
-            raise ValueError("'C' must be m x 1 or m x n matrix, where m is the number of states.")
+        if not (x.shape[0] == m and (x.shape[-1] in (1, n))):
+            raise ValueError("'C' must be m x 1 or m x n matrix, "
+                             "where m is the number of states.")
     return x
 
 
 def check_noise_std(x, p, n, multivariate=False):
-    """
-        Check vector H of standard deviations of noise. Either a scalar or a vector of  length n.
+    """Check vector H of standard deviations of noise. Either a scalar or a vector of  length n,
+        or p x p matrix or p x p x n array.
     Args:
         x:
         p:
@@ -239,22 +226,24 @@ def check_noise_std(x, p, n, multivariate=False):
     Returns:
 
     """
-    if not np.issubdtype(x.dtype, np.number):
-        raise ValueError("'H' must be numeric.")
-
     if not multivariate:
-        if x.size not in (1, n):
-            raise ValueError("'H' must be a scalar or length n, where n is the length of the time series y")
-        else:
-            x = np.asarray(x, dtype=float)
+        if (x.size > 1 and x.size != n and len(x.shape) == 1):
+            raise ValueError("'H' must be a scalar or length n, "
+                             "where n is the length of the time series y")
     else:
-        if x.shape[:2] != (p, p) or x.shape[2] not in (1, n, None):
-            raise ValueError(
-                "Argument 'H' must be a p x p matrix or p x p x n array, "
-                "where p is the number of series and n is the length of the series.")
-        else:
-            x = np.reshape(x, (p, p, (n - 1) * int(max(x.shape[2], 0) > 1) + 1))
-
+        match x.shape:
+            case 2:
+                if x.shape != (p, p):
+                    raise ValueError(
+                        "Argument 'H' must be a p x p matrix "
+                        "where p is the number of series and n is the length of the series.")
+                else:
+                    x = np.reshape(x, (p, p, 1))
+            case 3:
+                if x.shape[:2] != (p, p) and x.shape[2] not in (1, n):
+                    raise ValueError(
+                        "Argument 'H' must  p x p x n array, "
+                        "where p is the number of series and n is the length of the series.")
     return x
 
 
@@ -276,15 +265,16 @@ def check_obs_mtx(x, p, n, multivariate=False):
     if not np.issubdtype(x.dtype, np.number):
         raise ValueError("'Z' must be numeric.")
     if not multivariate:
-        if np.size(x) == 1: # single variable case
+        if np.size(x) == 1:  # single variable case
             x = np.reshape(x, (1, 1))
         else:
             if x.shape[1] not in (1, n):
                 raise ValueError("'Z' must be a (m x 1) or (m x n) matrix,"
                                  " where m is the number of states and n is the length of the series.")
             else:
-                x = np.reshape(x, (x.shape[0], (n - 1) * (np.maximum(x.shape[1], 0, where=~np.isnan(x.shape[1])) > 1) + 1))
-    else: # multivariate
+                x = np.reshape(x,
+                               (x.shape[0], (n - 1) * (np.maximum(x.shape[1], 0, where=~np.isnan(x.shape[1])) > 1) + 1))
+    else:  # multivariate
         if x.size == 1:
             x = np.reshape(x, (1, 1, 1))
         else:
@@ -292,7 +282,8 @@ def check_obs_mtx(x, p, n, multivariate=False):
                 raise ValueError("'Z' must be a (p x m) matrix or (p x m x n) array "
                                  "where p is the feature of series, m is the number of states, "
                                  "and n is the length of the series.")
-            x = np.reshape(x, (p, x.shape[1], (n - 1) * (np.maximum(x.shape[2], 0, where=~np.isnan(x.shape[2])) > 1) + 1))
+            x = np.reshape(x,
+                           (p, x.shape[1], (n - 1) * (np.maximum(x.shape[2], 0, where=~np.isnan(x.shape[2])) > 1) + 1))
 
     return x
 
@@ -306,17 +297,30 @@ def check_state_mtx(x, m, n):
         n:
 
     Returns:
+        x: m x m x 1 or m x m x n
 
     """
     if not np.issubdtype(x.dtype, np.number):
         raise ValueError("'T' must be numeric.")
-    if x.size == 1 and m == 1:
-        x = np.reshape(x, (1, 1, 1))
-    else:
-        if x.size == 1 or (x.shape[0] != m or x.shape[1] != m) or (x.shape[2] not in (1, n)):
-            raise ValueError("'T' must be a (m x m) matrix, (m x m x 1) or (m x m x n) array, "
-                             "where m is the number of states.")
-        x = np.reshape(x, (m, m, (n - 1) * (np.maximum(x.shape[2], 0, where=~np.isnan(x.shape[2])) > 1) + 1))
+    try:
+        match len(x.shape):
+            case 1:
+                if m != 1:
+                    raise ValueError("'T' is a scalar now, it must be a (m x m) matrix.")
+                x = np.reshape(x, (1, 1, 1))
+            case 2:
+                if x.shape[0] != m or x.shape[1] != m:
+                    raise ValueError("'T' must be a (m x m) matrix, "
+                                     "where m is the number of states.")
+                x = np.reshape(x, (m, m, 1))
+            case 3:
+                if x.shape[2] not in (1, n):
+                    raise ValueError("'T' must be a (m x m x 1) or (m x m x n) array, "
+                                     "where m is the number of states.")
+                x = np.reshape(x, (m, m, (n - 1) * (np.maximum(x.shape[2], 0, where=~np.isnan(x.shape[2])) > 1) + 1))
+    except:
+        raise ValueError('The dimension of T must be: 1, 2, 3. Warning: np.array(scalar) has dim 0.')
+
     return x
 
 
@@ -331,16 +335,27 @@ def check_mtx_lower(x, m, n):
     Returns:
 
     """
-    if x.size == 1:
-        x = x.reshape(m, 1, 1)
-    else:
-        if not np.issubdtype(x.dtype, np.number):
-            raise ValueError("'R' must be numeric.")
-        if x.shape[0] != m or x.shape[1] > m or x.shape[2] not in [1, n]:
-            raise ValueError("R must be a (m x k) matrix, (m x k x 1), or (m x k x n) array, "
-                             "where k <= m is the number of disturbances eta, and m is the number of states.")
-        else:
-            x = x.reshape(m, x.shape[1], n if x.shape[2] > 1 else 1)
+    if not np.issubdtype(x.dtype, np.number):
+        raise ValueError("'R' must be numeric.")
+    try:
+        match len(x.shape):
+            case 1:
+                if m != 1:
+                    raise ValueError("'R' is a scalar now, it must be a (m x k) matrix.")
+                x = np.reshape(x, (1, 1, 1))
+            case 2:
+                if x.shape[0] != m or x.shape[1] > m:
+                    raise ValueError("R must be a (m x k) matrix, "
+                                     "where m is the number of states.")
+                x = np.reshape(x, (m, x.shape[1], 1))
+            case 3:
+                if x.shape[2] not in (1, n):
+                    raise ValueError("R must be a (m x k) matrix, (m x k x 1), or (m x k x n) array, "
+                                     "where k <= m is the number of disturbances eta, and m is the number of states.")
+                x = x.reshape(m, x.shape[1], n if x.shape[2] > 1 else 1)
+    except:
+        raise ValueError('The dimension of T must be: 1, 2, 3. Warning: np.array(scalar) has dim 0.')
+
     return x
 
 
@@ -362,9 +377,10 @@ def check_prior_mean(x, m):
     else:
         if not np.issubdtype(x.dtype, np.number):
             raise ValueError("'Prior mean' must be numeric.")
-        if x.size == 1 or x.size == m:
+        if x.size == 1:
+            #TODO:very confusing in R code check_a1, why repeat when x.size==m
             x = np.repeat(x, m)
-        else:
+        elif x.size != m or len(x.shape)>1:
             raise ValueError("Misspecified prior mean, argument prior mean must be a vector of length m,"
                              " where m is the number of state_names and 1 <= t <= m.")
     return x
@@ -390,12 +406,24 @@ def check_prior_cov(x, m):
             x = np.reshape(x, (1, 1))
         else:
             if x.shape != (m, m):
-                raise ValueError("Argument prior covariance must be an (m x m) matrix, where m is the number of states.")
+                raise ValueError(
+                    "Argument prior covariance must be an (m x m) matrix, "
+                    "where m is the number of states.")
 
     return x
 
 
 def create_regression(beta, xreg, n):
+    """
+
+    Args:
+        beta:
+        xreg:
+        n:
+
+    Returns:
+
+    """
     if xreg is None:
         return {"xreg": np.empty((0, 0)), "coefs": np.array([]), "beta": None}
     else:
