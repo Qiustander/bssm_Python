@@ -80,21 +80,6 @@ def check_sd(x, type, add_prefix=True):
         raise ValueError(f"Argument {param} must be finite.")
 
 
-def check_xreg(x, n):
-    if x.shape[0] not in (0, n):
-        raise ValueError("Number of rows in xreg is not equal to the length of the series y.")
-    if not np.isfinite(x).all():
-        raise ValueError("Argument xreg must contain only finite values.")
-
-
-def check_beta(x, k):
-    if not np.issubdtype(x.dtype, np.number):
-        raise ValueError("'beta' must be numeric.")
-    if len(x) != k:
-        raise ValueError("Number of coefficients in beta is not equal to the number of columns of xreg.")
-    if not np.isfinite(x).all():
-        raise ValueError("Argument 'beta' must contain only finite values.")
-
 
 def check_mu(x):
     if len(x) != 1:
@@ -114,41 +99,6 @@ def check_phi(x):
     if x < 0:
         raise ValueError("Parameter 'phi' must be non-negative.")
 
-
-def check_positive_const(x, y, multivariate=False):
-    """
-    Check the matrix of positive constants u for non-Gaussian models
-     (of same dimensions as y).
-    Args:
-        x:
-        y:
-        multivariate:
-
-    Returns:
-
-    """
-    if x is None:
-        x = np.ones((y.shape[0]))
-    if (x < 0).any():
-        raise ValueError("All values of 'u' must be non-negative.")
-    if multivariate:
-        if len(x) == 1:
-            x = np.ones(y.shape)
-        if not np.issubdtype(x.dtype, np.number):
-            raise ValueError("Argument 'u' must be a numeric matrix.")
-        if not np.array_equal(np.shape(y), np.shape(x)):
-            raise ValueError("Dimensions of 'y' and 'u' do not match.")
-    else: # univariate
-        if len(x) == 1:
-            x = np.repeat(x, len(y))
-        if not np.issubdtype(x.dtype, np.number):
-            raise ValueError("Argument 'u' must be a numeric vector.")
-        if len(x) != len(y):
-            raise ValueError("Lengths of 'u' and 'y' do not match.")
-    if not np.isfinite(x).all():
-        raise ValueError("Argument 'u' must contain only finite values.")
-
-    return x
 
 
 def check_prior(x, name):
@@ -412,44 +362,118 @@ def check_prior_cov(x, m):
 
     return x
 
+# Check Regression Model
+
+def check_xreg(x, n):
+    """Check matrix containing covariates with number of rows matching the length of observation y.
+    Args:
+        x:
+        n:
+
+    Returns:
+
+    """
+    if x.shape[0] not in (1, n):
+        raise ValueError("Number of rows in xreg is not equal to the length of the series y.")
+    if not np.isfinite(x).all():
+        raise ValueError("Argument xreg must contain only finite values.")
+
+
+def check_beta(x, k):
+    """
+    Check A prior for the regression coefficients.
+    Should be a vector of prior function (in case of multiple coefficients) or missing in case of no covariates.
+    Args:
+        x:
+        k:
+
+    Returns:
+
+    """
+    if not np.issubdtype(x.dtype, np.number):
+        raise ValueError("'beta' must be numeric.")
+    if len(x) != k:
+        raise ValueError("Number of coefficients in beta is not equal to the number of columns of xreg.")
+    if not np.isfinite(x).all():
+        raise ValueError("Argument 'beta' must contain only finite values.")
+
+
+def check_positive_const(x, y, multivariate=False):
+    """
+    Check the matrix of positive constants u for non-Gaussian models
+     (of same dimensions as y).
+    Args:
+        x:
+        y:
+        multivariate:
+
+    Returns:
+
+    """
+    if x is None:
+        x = np.ones((y.shape[0]))
+    if (x < 0).any():
+        raise ValueError("All values of 'u' must be non-negative.")
+    if multivariate:
+        if len(x) == 1:
+            x = np.ones(y.shape)
+        if not np.issubdtype(x.dtype, np.number):
+            raise ValueError("Argument 'u' must be a numeric matrix.")
+        if not np.array_equal(np.shape(y), np.shape(x)):
+            raise ValueError("Dimensions of 'y' and 'u' do not match.")
+    else: # univariate
+        if len(x) == 1:
+            x = np.repeat(x, len(y))
+        if not np.issubdtype(x.dtype, np.number):
+            raise ValueError("Argument 'u' must be a numeric vector.")
+        if len(x) != len(y):
+            raise ValueError("Lengths of 'u' and 'y' do not match.")
+    if not np.isfinite(x).all():
+        raise ValueError("Argument 'u' must contain only finite values.")
+
+    return x
+
+
 
 def create_regression(beta, xreg, n):
     """
 
     Args:
-        beta:
+        beta: an object belong to Prior Class
         xreg:
         n:
 
     Returns:
 
     """
+
     if xreg is None:
-        return {"xreg": np.empty((0, 0)), "coefs": np.array([]), "beta": None}
+        return {'xreg': np.zeros((0, 0)), 'coefs': np.array([0]), 'beta': None}
     else:
         if beta is None:
             raise ValueError("No prior defined for beta.")
         else:
-            # Check if beta is an instance of bssm_prior or bssm_prior_list
-            # You need to implement these classes and their check functions in Python
             if not (is_prior(beta) or is_prior_list(beta)):
-                raise ValueError("Prior for beta must be of class 'bssm_prior' or 'bssm_prior_list'.")
-            else:
-                if xreg.ndim == 1:
-                    if xreg.shape[0] == n:
-                        xreg = xreg.reshape(n, 1)
-                    else:
-                        raise ValueError("Length of xreg is not equal to the length of the series y.")
-                check_xreg(xreg, n)
-                nx = xreg.shape[1]
-                if nx == 1 and is_prior_list(beta):
-                    beta = beta[0]
-                if nx > 1:
-                    coefs = np.array([b["init"] for b in beta])
+                raise ValueError("Prior for beta must belong to 'bssm_prior' or 'bssm_prior_list.")
+            if xreg.shape == (len(xreg),):
+                if len(xreg) == n:
+                    xreg = xreg.reshape((n, 1))
                 else:
-                    coefs = beta["init"]
-                check_beta(coefs, nx)
-                if nx > 0 and xreg.columns is None:
-                    xreg.columns = [f"coef_{i}" for i in range(1, xreg.shape[1] + 1)]
-                coefs_names = xreg.columns
-    return {"xreg": xreg, "coefs": coefs, "beta": beta}
+                    raise ValueError("Length of xreg is not equal to the length of the series y.")
+
+            check_xreg(xreg, n)
+            nx = xreg.shape[1]
+
+            if nx == 1 and is_prior_list(beta):
+                beta = beta[0]
+
+            if nx > 1:
+                coefs = np.array([b['init'] for b in beta])
+            else:
+                coefs = beta['init']
+
+            check_beta(coefs, nx)
+
+            #TODO: In R need to assign name
+
+        return {'xreg': xreg, 'coefs': coefs, 'beta': beta}
