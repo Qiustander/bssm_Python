@@ -182,7 +182,8 @@ class SSModel:
             sd_noise (np.array):  prior for the standard deviation of the additional noise term to be added to linear predictor,
                 defined as a vector of prior. If missing, no additional noise term is used.
             phi: Additional parameter relating to the non-Gaussian distribution.
-                For negative binomial distribution this is the dispersion term, for gamma distribution this is the shape parameter, and for other distributions this is ignored.
+                For negative binomial distribution this is the dispersion term,
+                for gamma distribution this is the shape parameter, and for other distributions this is ignored.
                 Should a vector of prior function or a positive scalar.
             positive_const: A vector u of positive constants for non-Gaussian models.
                 For Poisson, gamma, and negative binomial distribution, this corresponds to the offset term. For binomial, this is the number of trials.
@@ -225,3 +226,9 @@ class SSModel:
         pass
 
 
+    def _toR(self):
+        """
+        Transfer to R object (S3)
+        Returns:
+
+        """

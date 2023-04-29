@@ -1,4 +1,5 @@
 import numpy as np
+from prior import is_prior, is_prior_list
 
 
 def check_y(x, multivariate=False, distribution="gaussian"):
@@ -80,7 +81,6 @@ def check_sd(x, type, add_prefix=True):
         raise ValueError(f"Argument {param} must be finite.")
 
 
-
 def check_mu(x):
     if len(x) != 1:
         raise ValueError("Argument 'mu' must be of length one.")
@@ -98,7 +98,6 @@ def check_rho(x):
 def check_phi(x):
     if x < 0:
         raise ValueError("Parameter 'phi' must be non-negative.")
-
 
 
 def check_prior(x, name):
@@ -311,7 +310,6 @@ def check_mtx_lower(x, m, n):
 
 ###### Check Prior mean and covariance
 
-
 def check_prior_mean(x, m):
     """
     Check prior mean for the initial state as a vector of length m.
@@ -434,7 +432,6 @@ def check_positive_const(x, y, multivariate=False):
     return x
 
 
-
 def create_regression(beta, xreg, n):
     """
 
@@ -470,7 +467,7 @@ def create_regression(beta, xreg, n):
             if nx > 1:
                 coefs = np.array([b['init'] for b in beta])
             else:
-                coefs = beta['init']
+                coefs = beta.init
 
             check_beta(coefs, nx)
 

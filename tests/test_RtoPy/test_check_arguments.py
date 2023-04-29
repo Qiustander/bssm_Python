@@ -5,6 +5,8 @@ from rpy2.robjects import numpy2ri
 from rpy2.robjects.packages import importr
 from Models.check_argument import *
 from numpy.testing import assert_array_almost_equal_nulp
+import os.path as pth
+import os
 
 # Automatic convertion between R and Python objects
 numpy2ri.activate()
@@ -49,7 +51,8 @@ prior_mean = np.array(ro.r("a1"))
 prior_cov = np.array(ro.r("P1"))
 
 # Import R function
-ro.r("""source('/home/project/Desktop/bssm_Python/bssm_R/R/check_arguments.R')""")
+ro.r("""source('{path_name}')""".
+     format(path_name=pth.join(pth.abspath(pth.join(os.getcwd(), os.pardir, os.pardir)), 'bssm_R/R/check_arguments.R')))
 r_check_y = ro.globalenv['check_y']
 r_check_obsmtx = ro.globalenv['check_Z']
 r_check_statemtx = ro.globalenv['check_T']
