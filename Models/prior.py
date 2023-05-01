@@ -1,6 +1,5 @@
 import numpy as np
 
-
 class Prior(object):
     """Define Class object for prior
     Args:
@@ -159,17 +158,17 @@ class Prior(object):
             self.priorlabel = "bssm_prior"
             prior_list = {"init": self.init,
                           "mean": self.mean,
+                          "sd": self.sd,
                           "min_val": self.min_val,
-                          "max_val": self.max_val,
-                          "sd": self.sd}
+                          "max_val": self.max_val}
         else:
             self.priorlabel = "bssm_prior_list"
             prior_list = [{"prior_distribution": self.prior_distribution,
                            "init": self.save_pick(self.init, i),
                            "mean": self.save_pick(self.mean, i),
+                           "sd": self.save_pick(self.sd, i),
                            "min_val": self.save_pick(self.min_val, i),
-                           "max_val": self.save_pick(self.max_val, i),
-                           "sd": self.save_pick(self.sd, i)} for i in range(n)]
+                           "max_val": self.save_pick(self.max_val, i)} for i in range(n)]
         self.prior = prior_list
 
     def gamma_prior(self):
@@ -212,6 +211,21 @@ class Prior(object):
 
         Returns: a list in R (Dict in Python)
         """
+        prior_dict = []
+        if isinstance(self.prior, list): #prior_list
+            for idx in range(len(self.prior)):
+                sub_list = []
+                for key, value in self.prior[idx].items():
+                    sub_list.append(value)
+                prior_dict.append(sub_list)
+        elif isinstance(self.prior, dict):
+            prior_dict.append(self.prior_distribution)
+            for key, value in self.prior.items():
+                prior_dict.append(value[0])
+        else:
+            raise TypeError('No matching type for prior!')
+
+        return prior_dict
 
     @staticmethod
     def save_pick(x, i):

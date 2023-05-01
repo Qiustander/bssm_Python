@@ -72,12 +72,14 @@ class SSModel:
 
         self.input_dict['noise_std'] = check_noise_std(self.input_dict['noise_std'], 1, n)
 
-        if 'state_names' not in self.input_dict:
-            state_names = [f"state {i+1}" for i in range(m)]
-            self.input_dict['state_names'] = state_names
-        if 'init_theta' not in self.input_dict:
-            init_theta = np.array([])
-            self.input_dict['init_theta'] = init_theta
+        self.model_name = "ssm_ulg"
+
+        # if 'state_names' not in self.input_dict:
+        #     state_names = [f"state {i+1}" for i in range(m)]
+        #     self.input_dict['state_names'] = state_names
+        # if 'init_theta' not in self.input_dict:
+        #     init_theta = np.array([])
+        #     self.input_dict['init_theta'] = init_theta
 
     def ssm_mlg(self):
         """General multivariate linear Gaussian state space models
@@ -117,6 +119,8 @@ class SSModel:
 
         self.input_dict['noise_std'] = check_noise_std(self.input_dict['noise_std'], p, n, multivariate=True)
 
+        self.model_name = "ssm_mlg"
+
         # if 'state_names' not in self.input_dict:
         #     state_names = [f"state {i+1}" for i in range(m)]
         #     self.input_dict['state_names'] = state_names
@@ -148,22 +152,23 @@ class SSModel:
         Returns:
 
         """
+        self.model_name = "ssm_ung"
 
 
     def ssm_mng(self):
-        pass
+        self.model_name = "ssm_mng"
 
     def ssm_nlg(self):
-        pass
+        self.model_name = "ssm_nlg"
 
     def ssm_sde(self):
-        pass
+        self.model_name = "ssm_sde"
 
     def ssm_svm(self):
-        pass
+        self.model_name = "ssm_svm"
 
     def bsm_lg(self):
-        pass
+        self.model_name = "bsm_lg"
 
     def bsm_ng(self):
         """Non-Gaussian Basic Structural (Time Series) Model
@@ -218,13 +223,13 @@ class SSModel:
 
         self.input_dict['noise_std'] = check_noise_std(self.input_dict['noise_std'], p, n, multivariate=True)
 
+        self.model_name = "bsm_ng"
 
     def ar1_lg(self):
-        pass
+        self.model_name = "ar1_lg"
 
     def ar1_ng(self):
-        pass
-
+        self.model_name = "ar1_ng"
 
     def _toR(self):
         """

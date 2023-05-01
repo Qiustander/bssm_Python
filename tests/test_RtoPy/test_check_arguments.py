@@ -354,7 +354,7 @@ class TestNoiseSTD:
         assert_array_almost_equal_nulp(input_obs_Py, input_obs_r)
 
     def test_matrix_std(self, n, p):
-        input_ob = np.random.rand(p, n)
+        input_ob = np.random.rand(p, p)
         input_obs_Py = check_noise_std(input_ob,  p=p, n=y.size, multivariate=True)
         input_obs_r = r_check_noisestd(input_ob, p=p, n=y.size, multivariate=True)
         assert_array_almost_equal_nulp(input_obs_Py, input_obs_r)

@@ -1,5 +1,5 @@
 import numpy as np
-from prior import is_prior, is_prior_list
+from .prior import is_prior, is_prior_list
 
 
 def check_y(x, multivariate=False, distribution="gaussian"):
@@ -106,7 +106,7 @@ def check_prior(x, name):
 
 
 def check_prop(x, name="target"):
-    if len(x) > 1 or x >= 1 or x <= 0:
+    if not isinstance(x, (float, int)) or x >= 1 or x <= 0:
         raise ValueError(f"Argument '{name}' must be on interval (0, 1).")
 
 
@@ -180,14 +180,13 @@ def check_noise_std(x, p, n, multivariate=False):
             raise ValueError("'H' must be a scalar or length n, "
                              "where n is the length of the time series y")
     else:
-        match x.shape:
+        match len(x.shape):
             case 2:
                 if x.shape != (p, p):
                     raise ValueError(
                         "Argument 'H' must be a p x p matrix "
                         "where p is the number of series and n is the length of the series.")
-                else:
-                    x = np.reshape(x, (p, p, 1))
+                x = x[..., None]
             case 3:
                 if x.shape[:2] != (p, p) and x.shape[2] not in (1, n):
                     raise ValueError(
@@ -261,7 +260,7 @@ def check_state_mtx(x, m, n):
                 if x.shape[0] != m or x.shape[1] != m:
                     raise ValueError("'T' must be a (m x m) matrix, "
                                      "where m is the number of states.")
-                x = np.reshape(x, (m, m, 1))
+                x = x[..., None]
             case 3:
                 if x.shape[2] not in (1, n):
                     raise ValueError("'T' must be a (m x m x 1) or (m x m x n) array, "
@@ -474,3 +473,39 @@ def create_regression(beta, xreg, n):
             #TODO: In R need to assign name
 
         return {'xreg': xreg, 'coefs': coefs, 'beta': beta}
+
+
+# Check MCMC
+def check_missingness(x):
+    """Check the misingness arguments for the mcmc
+    Args:
+        x: bssm_model
+    """
+    if not x.model_name in ["ssm_nlg", "ssm_sde"]:
+        if not hasattr(x, "prior_parameters"):
+            for attribute, value in x.__dict__.items():
+                if attribute not in ["y", "update_fn", "prior_fn"] and np.isnan(value):
+                    raise ValueError("Missing values not allowed in the model object "
+                                     "(except in component 'y').")
+        else:
+            for attribute, value in x.__dict__.items():
+                if attribute not in ["y", "prior_parameters"] and np.isnan(value):
+                    raise ValueError("Missing values not allowed in the model object "
+                                     "(except in components 'y' and 'prior_parameters').")
+
+
+def check_intmax(x, postivive=True, max_val=1e5):
+    """Chcek whether is non-negative/negative integer
+
+    Args:
+        x: input scalar
+
+    Returns:
+
+    """
+    if not (isinstance(x, int) and
+            (x >= 0 if postivive else x < 0)):
+        raise ValueError(f"should be a {str('non-negative') if postivive else str('non-positive')} "
+                         f"integer.")
+    if x > max_val:
+        raise ValueError('The input number exceeds the maximum range.')
