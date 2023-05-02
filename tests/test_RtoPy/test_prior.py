@@ -15,7 +15,7 @@ numpy2ri.activate()
 pandas2ri.activate()
 
 base = importr('base', lib_loc="/usr/lib/R/library")
-bssm_package = importr('bssm', lib_loc="/home/stander/R/x86_64-pc-linux-gnu-library/4.2")
+bssm_package = importr('bssm', lib_loc=f"{pth.expanduser('~')}/R/x86_64-pc-linux-gnu-library/4.2")
 
 # Import R function
 ro.r("""source('{path_name}')""".

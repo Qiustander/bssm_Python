@@ -13,7 +13,7 @@ import os
 numpy2ri.activate()
 
 base = importr('base', lib_loc="/usr/lib/R/library")
-bssm_package = importr('bssm', lib_loc="/home/stander/R/x86_64-pc-linux-gnu-library/4.2")
+bssm_package = importr("callr", lib_loc="/home/project/R/x86_64-pc-linux-gnu-library/4.2")
 
 # Import R function
 ro.r("""source('{path_name}')""".
@@ -69,7 +69,11 @@ class TestModel:
           C = matrix(0, 3, 1), D = numeric(1))
          }""")
         r_ssm = ro.r("model")
-        model_obj = SSModel(init=[2, 2.2], mean=[-1.0, 0.001], min_val=[1.2, 2],
-                          max_val=[3.3], sd=[1.0, 1.2], distribution='tnormal')._toR()
+        model_obj = SSModel(model_name="ssm_ulg", y=np.array(ro.r["y"][0]),
+                            obs_mtx=np.array(ro.r("Z")), noise_std=ro.r("H")[0],
+                            state_mtx=np.array(ro.r("T")),state_mtx_lower = np.array(ro.r("R")),
+                            prior_mean=np.array(ro.r("a1")), prior_cov = np.array(ro.r("P1")),
+                          input_state=np.array(ro.r("C")), input_obs=np.array(ro.r("D")),
+                         )._toR()
         comp_result = base.all_equal(r_ssm, model_obj)
         assert comp_result[0] == True

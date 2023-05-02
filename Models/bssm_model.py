@@ -1,7 +1,14 @@
 import numpy as np
-from check_argument import *
+from .check_argument import *
 from rpy2.robjects.conversion import localconverter
 import rpy2.robjects as ro
+from rpy2.robjects import numpy2ri, pandas2ri
+from rpy2.robjects.packages import importr
+import pandas as pd
+numpy2ri.activate()
+pandas2ri.activate()
+base = importr('base', lib_loc="/usr/lib/R/library")
+stat = importr('stats', lib_loc="/usr/lib/R/library")
 
 class SSModel:
     """
@@ -43,7 +50,6 @@ class SSModel:
             input_obs (np.array): Intercept terms \eqn{D_t} for the observations equation, given as a scalar or vector of length n.
             init_theta (np.array): Initial values for the unknown hyperparameters theta (i.e. unknown variables excluding latent state variables).
             noise_std (np.array): A vector H of standard deviations. Either a scalar or a vector of  length n.
-            state_names (str): A character vector defining the names of the states.
         Returns:
         """
         #TODO: first initilize the dictionary with None -> input -> do the checking according to variable name
@@ -57,7 +63,7 @@ class SSModel:
         self.obs_mtx = obs_mtx
 
         # create T - state matrix
-        self.state_mtx  = check_state_mtx(self.state_mtx, m, n)
+        self.state_mtx = check_state_mtx(self.state_mtx, m, n)
 
         # create R - lower state matrix
         self.state_mtx_lower = check_mtx_lower(self.state_mtx_lower, m, n)
@@ -251,7 +257,40 @@ class SSModel:
         model_dict = self.__dict__
         if "obs_mtx" in model_dict: model_dict["Z"] = model_dict.pop("obs_mtx")
         if "state_mtx" in model_dict: model_dict["T"] = model_dict.pop("state_mtx")
-        if "obs_mtx" in model_dict: model_dict["Z"] = model_dict.pop("obs_mtx")
-        if "obs_mtx" in model_dict: model_dict["Z"] = model_dict.pop("obs_mtx")
+        if "state_mtx_lower" in model_dict: model_dict["R"] = model_dict.pop("state_mtx_lower")
+        if "prior_mean" in model_dict: model_dict["a1"] = model_dict.pop("prior_mean")
+        if "noise_std" in model_dict: model_dict["H"] = model_dict.pop("noise_std")
+        if "prior_cov" in model_dict: model_dict["P1"] = model_dict.pop("prior_cov")
+        if "input_state" in model_dict: model_dict["C"] = model_dict.pop("input_state")
+        if "input_obs" in model_dict: model_dict["D"] = model_dict.pop("input_obs")
+
+        model_dict["y"] = pd.Series(model_dict["y"])
+        model_type = model_dict.pop("model_type")
+        model_name = model_dict.pop("model_name")
+        # define prior fn
+        r_prior_code = ("""
+                prior_fn <- function(theta) {
+          if(any(theta < 0)) {
+            log_p <- -Inf
+          } else {
+            log_p <- sum(dnorm(theta, 0, 1, log = TRUE))
+          }
+          log_p
+        }""")
+
+        # define update fn
+        r_update_code = ("""
+        update_fn <- function(theta) {
+        R <- diag(c(0, theta[1], theta[2]))
+          dim(R) <- c(3, 3, 1)
+          list(R = R, H = theta[3])
+        }""")
+        with localconverter(ro.default_converter):
+            r_obj = ro.ListVector(model_dict)
+        r_obj["prior_fn"] = ro.r["prior_fn"]
+        r_obj["update_fn"] = ro.r["update_fn"]
+        r_obj["xreg"] = ro.r.matrix(np.empty(0, 0), nrow=0, ncol=0)
+        r_obj["beta"] = ro.FloatVector(np.empty(0,))
+        r_obj.do_slot_assign("class", [model_name, model_type, "bssm_model"])
 
 
