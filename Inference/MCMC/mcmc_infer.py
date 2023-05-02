@@ -1,8 +1,9 @@
 import numpy as np
-from Models.check_argument import check_missingness, check_intmax
+import sys
+from Models.check_argument import check_missingness, check_intmax, check_prop
 
 class MCMCInfer:
-    def __init__(self, **kwargs):
+    def __init__(self, model, **kwargs):
         """Adaptive Markov chain Monte Carlo simulation for SSMs using
             Robust Adaptive Metropolis algorithm by Vihola (2012). Several different
             MCMC sampling schemes are implemented, see parameter
@@ -91,8 +92,11 @@ class MCMCInfer:
         for key, value in kwargs.items():
             setattr(self, key, value)
 
+        def_mcmc = getattr(self, "model_type")
+        def_mcmc()
+
     def linear_gaussian(self, model):
-        """
+        """ For linear model and Guassian innovation.
         Args:
             model: bssm model object
 
@@ -102,14 +106,31 @@ class MCMCInfer:
         """
         # check the list of arguments
         check_missingness(model)
-        if not self.end_adaptive_phase in [True, False]:
-            raise TypeError("Argument 'end_adaptive_phase' should be TRUE or FALSE.")
-        check_intmax(self.seed, postivive=False, max_val=float.__)
+        check_intmax(self.seed, postivive=False, max_val=sys.maxsize)
         check_intmax(self.threads)
         check_intmax(self.thin, max_val=100)
         check_intmax(self.iter, max_val=1e12)
         check_intmax(self.burnin, postivive=False, max_val=1e12)
+        check_prop(self.target_acceptance)
+        check_prop(self.gamma)
+        if self.burnin > self.iter:
+            raise ValueError("Argument 'burnin' should be smaller than 'iter'.")
+        if not self.end_adaptive_phase in [True, False]:
+            raise TypeError("Argument 'end_adaptive_phase' should be TRUE or FALSE.")
+        if not self.verbose in [True, False]:
+            raise TypeError("Argument 'verbose' should be TRUE or FALSE.")
+        if not hasattr(model, "theta"):
+            raise AttributeError("No unknown parameters ('theta' has length of zero).")
+        if model.model_name == "bsm_lg":
+            pass
+        if not hasattr(self, "S"):
+            self.S = np.diag(0.1* np.maximum(0.1, np.abs(model.theta)))
 
+    def _toR(self):
+        """Convert to R object
+        Returns:
+
+        """
 
 
 

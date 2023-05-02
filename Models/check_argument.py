@@ -105,9 +105,9 @@ def check_prior(x, name):
         raise ValueError(f"{name} must belong 'bssm_prior' or 'bssm_prior_list'.")
 
 
-def check_prop(x, name="target"):
+def check_prop(x):
     if not isinstance(x, (float, int)) or x >= 1 or x <= 0:
-        raise ValueError(f"Argument '{name}' must be on interval (0, 1).")
+        raise ValueError("Argument must be on interval (0, 1).")
 
 
 ##### Check input C & D

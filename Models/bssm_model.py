@@ -1,5 +1,7 @@
 import numpy as np
 from check_argument import *
+from rpy2.robjects.conversion import localconverter
+import rpy2.robjects as ro
 
 class SSModel:
     """
@@ -17,18 +19,20 @@ class SSModel:
     ar1_ng: Non-Gaussian model with AR(1) latent process
     """
 
-    def __init__(self, input_dict):
+    def __init__(self,  **kwargs):
         """
         Args:
-            input_dict: definition of input_arguments for different models
+            kwargs: definition of input_arguments for different models
         """
-        self.input_dict = input_dict
-        self.state_dim = input_dict['state_dim']
+        for key, value in kwargs.items():
+            setattr(self, key, value)
+
+        def_model = getattr(self, f"{kwargs['model_name']}")
+        def_model()
 
     def ssm_ulg(self):
         """General univariate linear-Gaussian state space models
         Args:
-            input_dict:
             y (np.array): Observations as time series (or vector) of length \eqn{n}.
             obs_mtx (np.array): System matrix Z of the observation equation. Either a vector of length m, a m x n matrix.
             state_mtx (np.array): System matrix T of the state equation. Either a m x m matrix or a m x m x n array.
@@ -38,48 +42,35 @@ class SSModel:
             input_state (np.array): Intercept terms \eqn{C_t} for the state equation, given as a m times 1 or m times n matrix.
             input_obs (np.array): Intercept terms \eqn{D_t} for the observations equation, given as a scalar or vector of length n.
             init_theta (np.array): Initial values for the unknown hyperparameters theta (i.e. unknown variables excluding latent state variables).
-            update_fn (object): A function which returns list of updated model  components given input vector theta.
-                    This function should take only one  vector argument which is used to create list with elements named as Z, T, R, a1, P1, D, C, and phi,
-                    where each element matches the dimensions of the original model. If any of these components is missing, it is assumed to be constant wrt.
-                     theta. It's best to check the internal dimensions with str(model_object) as the dimensions of input arguments can differ from the final dimensions.
-                     If any of these components is missing, it is assumed to be constant wrt. the eta.
-            prior_fn (object): A function which returns log of prior density given input vector theta.
             noise_std (np.array): A vector H of standard deviations. Either a scalar or a vector of  length n.
             state_names (str): A character vector defining the names of the states.
         Returns:
         """
         #TODO: first initilize the dictionary with None -> input -> do the checking according to variable name
 
-        size_y = check_y(self.input_dict['y']) # return time length and feature numbers
+        size_y = check_y(self.y) # return time length and feature numbers
         n = size_y[0]
 
         # create Z - obs matrix
-        obs_mtx = check_obs_mtx(self.input_dict['obs_mtx'], 1, n)
+        obs_mtx = check_obs_mtx(self.obs_mtx, 1, n)
         m = obs_mtx.shape[0]
-        self.input_dict['obs_mtx'] = obs_mtx
+        self.obs_mtx = obs_mtx
 
         # create T - state matrix
-        self.input_dict['state_mtx']  = check_state_mtx(self.input_dict['state_mtx'], m, n)
+        self.state_mtx  = check_state_mtx(self.state_mtx, m, n)
 
         # create R - lower state matrix
-        self.input_dict['state_mtx_lower'] = check_mtx_lower(self.input_dict['state_mtx_lower'], m, n)
+        self.state_mtx_lower = check_mtx_lower(self.state_mtx_lower, m, n)
 
-        self.input_dict['prior_mean'] = check_prior_mean(self.input_dict['prior_mean'], m)
-        self.input_dict['prior_cov'] = check_prior_cov(self.input_dict['prior_cov'], m)
+        self.prior_mean = check_prior_mean(self.prior_mean, m)
+        self.prior_cov = check_prior_cov(self.prior_cov, m)
 
-        self.input_dict['input_obs'] = check_input_obs(self.input_dict['input_obs'], 1, n)
-        self.input_dict['input_state'] = check_input_state(self.input_dict['input_state'], m, n)
+        self.input_obs = check_input_obs(self.input_obs, 1, n)
+        self.input_state = check_input_state(self.input_state, m, n)
 
-        self.input_dict['noise_std'] = check_noise_std(self.input_dict['noise_std'], 1, n)
+        self.noise_std = check_noise_std(self.noise_std, 1, n)
 
-        self.model_name = "ssm_ulg"
-
-        # if 'state_names' not in self.input_dict:
-        #     state_names = [f"state {i+1}" for i in range(m)]
-        #     self.input_dict['state_names'] = state_names
-        # if 'init_theta' not in self.input_dict:
-        #     init_theta = np.array([])
-        #     self.input_dict['init_theta'] = init_theta
+        self.model_type = "linear_gaussian"
 
     def ssm_mlg(self):
         """General multivariate linear Gaussian state space models
@@ -97,35 +88,30 @@ class SSModel:
         Returns:
         """
 
-        size_y = check_y(self.input_dict['y'])  # return time length and feature numbers
+        size_y = check_y(self.y) # return time length and feature numbers
         n, p = size_y
 
         # create Z - obs matrix
-        obs_mtx = check_obs_mtx(self.input_dict['obs_mtx'], p, n, multivariate=True)
+        obs_mtx = check_obs_mtx(self.obs_mtx, p, n)
         m = obs_mtx.shape[-1]
-        self.input_dict['obs_mtx'] = obs_mtx
+        self.obs_mtx = obs_mtx
 
         # create T - state matrix
-        self.input_dict['state_mtx']  = check_state_mtx(self.input_dict['state_mtx'], m, n)
+        self.state_mtx  = check_state_mtx(self.state_mtx, m, n)
 
         # create R - lower state matrix
-        self.input_dict['state_mtx_lower'] = check_mtx_lower(self.input_dict['state_mtx_lower'], m, n)
+        self.state_mtx_lower = check_mtx_lower(self.state_mtx_lower, m, n)
 
-        self.input_dict['prior_mean'] = check_prior_mean(self.input_dict['prior_mean'], m)
-        self.input_dict['prior_cov'] = check_prior_cov(self.input_dict['prior_cov'], m)
+        self.prior_mean = check_prior_mean(self.prior_mean, m)
+        self.prior_cov = check_prior_cov(self.prior_cov, m)
 
-        self.input_dict['input_obs'] = check_input_obs(self.input_dict['input_obs'], p, n)
-        self.input_dict['input_state'] = check_input_state(self.input_dict['input_state'], m, n)
+        self.input_obs = check_input_obs(self.input_obs, p, n)
+        self.input_state = check_input_state(self.input_state, m, n)
 
-        self.input_dict['noise_std'] = check_noise_std(self.input_dict['noise_std'], p, n, multivariate=True)
+        self.noise_std = check_noise_std(self.noise_std, p, n, multivariate=True)
 
-        self.model_name = "ssm_mlg"
+        self.model_type = "linear_gaussian"
 
-        # if 'state_names' not in self.input_dict:
-        #     state_names = [f"state {i+1}" for i in range(m)]
-        #     self.input_dict['state_names'] = state_names
-        # if self.input_dict['init_theta'] is None:
-        #     self.input_dict['init_theta'] = np.array([])
 
     def ssm_ung(self):
         """
@@ -152,23 +138,22 @@ class SSModel:
         Returns:
 
         """
-        self.model_name = "ssm_ung"
+        self.model_type = "non_gaussian"
 
 
     def ssm_mng(self):
-        self.model_name = "ssm_mng"
+        self.model_type = "non_gaussian"
 
     def ssm_nlg(self):
-        self.model_name = "ssm_nlg"
-
+        pass
     def ssm_sde(self):
-        self.model_name = "ssm_sde"
-
+        pass
     def ssm_svm(self):
-        self.model_name = "ssm_svm"
+        self.model_type = "non_gaussian"
+
 
     def bsm_lg(self):
-        self.model_name = "bsm_lg"
+        self.model_type = "linear_gaussian"
 
     def bsm_ng(self):
         """Non-Gaussian Basic Structural (Time Series) Model
@@ -208,28 +193,53 @@ class SSModel:
         if self.input_dict['distribution'] not in self.dist_list:
             raise AttributeError("No distribution found. Please check again.")
 
-        size_y = check_y(self.input_dict['y'], multivariate=False, distribution=self.input_dict['distribution'])  # return time length and feature numbers
-        n = size_y[0]
+        # size_y = check_y(self.input_dict['y'], multivariate=False, distribution=self.input_dict['distribution'])  # return time length and feature numbers
+        # n = size_y[0]
+        #
+        # self.input_dict['positive_const'] = check_positive_const(self.input_dict['positive_const'], self.input_dict['y'])
+        #
+        # self.input_dict['state_mtx_lower'] = check_mtx_lower(self.input_dict['state_mtx_lower'], m, n)
+        #
+        # self.input_dict['prior_mean'] = check_prior_mean(self.input_dict['prior_mean'], m)
+        # self.input_dict['prior_cov'] = check_prior_cov(self.input_dict['prior_cov'], m)
+        #
+        # self.input_dict['input_obs'] = check_input_obs(self.input_dict['input_obs'], p, n)
+        # self.input_dict['input_state'] = check_input_state(self.input_dict['input_state'], m, n)
+        #
+        # self.input_dict['noise_std'] = check_noise_std(self.input_dict['noise_std'], p, n, multivariate=True)
 
-        self.input_dict['positive_const'] = check_positive_const(self.input_dict['positive_const'], self.input_dict['y'])
-
-        self.input_dict['state_mtx_lower'] = check_mtx_lower(self.input_dict['state_mtx_lower'], m, n)
-
-        self.input_dict['prior_mean'] = check_prior_mean(self.input_dict['prior_mean'], m)
-        self.input_dict['prior_cov'] = check_prior_cov(self.input_dict['prior_cov'], m)
-
-        self.input_dict['input_obs'] = check_input_obs(self.input_dict['input_obs'], p, n)
-        self.input_dict['input_state'] = check_input_state(self.input_dict['input_state'], m, n)
-
-        self.input_dict['noise_std'] = check_noise_std(self.input_dict['noise_std'], p, n, multivariate=True)
-
-        self.model_name = "bsm_ng"
+        self.model_type = "non_gaussian"
 
     def ar1_lg(self):
-        self.model_name = "ar1_lg"
+        self.model_type = "linear_gaussian"
+
 
     def ar1_ng(self):
-        self.model_name = "ar1_ng"
+        self.model_type = "non_gaussian"
+
+
+    def model_type_case(self):
+        if self.model_type == "linear_gaussian":
+            return ["ssm_mlg", "ssm_ulg", "bsm_lg", "ar1_lg"].index(self.model_name)
+        else:
+            return ["ssm_mng", "ssm_ung", "bsm_ng", "svm", "ar1_ng"].index(self.model_name)
+
+    def update_fn(self):
+        """ Define a function which returns list of updated model  components given input vector theta.
+        This function should take only one  vector argument which is used to create list with elements named as Z, T, R, a1, P1, D, C, and phi,
+        where each element matches the dimensions of the original model. If any of these components is missing, it is assumed to be constant wrt.
+         theta. It's best to check the internal dimensions with str(model_object) as the dimensions of input arguments can differ from the final dimensions.
+         If any of these components is missing, it is assumed to be constant wrt. the eta.
+        Returns:
+
+        """
+
+    def prior_fn(self):
+        """Define a function which returns log of prior density
+            given input vector theta.
+        Returns:
+
+        """
 
     def _toR(self):
         """
@@ -237,3 +247,11 @@ class SSModel:
         Returns:
 
         """
+        # the prior function and update function, use the original version.
+        model_dict = self.__dict__
+        if "obs_mtx" in model_dict: model_dict["Z"] = model_dict.pop("obs_mtx")
+        if "state_mtx" in model_dict: model_dict["T"] = model_dict.pop("state_mtx")
+        if "obs_mtx" in model_dict: model_dict["Z"] = model_dict.pop("obs_mtx")
+        if "obs_mtx" in model_dict: model_dict["Z"] = model_dict.pop("obs_mtx")
+
+

@@ -1,4 +1,6 @@
 import numpy as np
+from rpy2.robjects.conversion import localconverter
+import rpy2.robjects as ro
 
 class Prior(object):
     """Define Class object for prior
@@ -45,7 +47,8 @@ class Prior(object):
         n = max(len(self.init), len(self.mean), len(self.sd))
         if n == 1:
             self.priorlabel = "bssm_prior"
-            prior_list = {"init": self.init,
+            prior_list = {"prior_distribution": self.prior_distribution,
+                        "init": self.init,
                           "mean": self.mean,
                           "sd": self.sd}
         else:
@@ -81,7 +84,8 @@ class Prior(object):
         n = max(len(self.init), len(self.min_val), len(self.max_val))
         if n == 1:
             self.priorlabel = "bssm_prior"
-            prior_list = {"init": self.init,
+            prior_list = {"prior_distribution": self.prior_distribution,
+                            "init": self.init,
                           "min_val": self.min_val,
                           "max_val": self.max_val}
         else:
@@ -116,7 +120,8 @@ class Prior(object):
         n = max(len(self.init), len(self.sd))
         if n == 1:
             self.priorlabel = "bssm_prior"
-            prior_list = {"init": self.init,
+            prior_list = {"prior_distribution": self.prior_distribution,
+                         "init": self.init,
                           "sd": self.sd}
         else:
             self.priorlabel = "bssm_prior_list"
@@ -156,7 +161,8 @@ class Prior(object):
         n = max(len(self.init), len(self.mean), len(self.sd))
         if n == 1:
             self.priorlabel = "bssm_prior"
-            prior_list = {"init": self.init,
+            prior_list = {"prior_distribution": self.prior_distribution,
+                            "init": self.init,
                           "mean": self.mean,
                           "sd": self.sd,
                           "min_val": self.min_val,
@@ -195,7 +201,8 @@ class Prior(object):
         n = max(len(self.init), len(self.shape), len(self.rate))
         if n == 1:
             self.priorlabel = "bssm_prior"
-            prior_list = {"init": self.init,
+            prior_list = {"prior_distribution": self.prior_distribution,
+                        "init": self.init,
                           "shape": self.shape,
                           "rate": self.rate}
         else:
@@ -206,8 +213,8 @@ class Prior(object):
                            "rate": self.save_pick(self.rate, i)} for i in range(n)]
         self.prior = prior_list
 
-    def _toR(self):
-        """Transfer the prior object to R structure
+    def _tolist(self):
+        """Transfer the prior object to list for comparison
 
         Returns: a list in R (Dict in Python)
         """
@@ -226,6 +233,48 @@ class Prior(object):
             raise TypeError('No matching type for prior!')
 
         return prior_dict
+
+    def _toR(self):
+        """Transfer the prior object to R structure
+
+        Returns: a dict in R
+        """
+        # Create a function to convert a Python dictionary to an R named list
+        def dict_to_named_list(obj, cls=None):
+            # r_list = base.list(**d)
+            r_obj = ro.ListVector(obj)
+            if cls:
+                r_obj.do_slot_assign("class", cls)
+            return r_obj
+
+        if isinstance(self.prior, list): #prior_list
+            # Convert bssm_prior_list from Python to R
+            r_obj = ro.ListVector.from_length(len(self.prior))
+            for i, x in enumerate(self.prior):
+                # change min, max
+                if "min_val" in x:
+                    x["min"] = x.pop("min_val")
+                    x["max"] = x.pop("max_val")
+                r_obj[i] = ro.ListVector(x)
+                r_obj[i].do_slot_assign("class", "bssm_prior")
+            # r_obj = ro.ListVector([dict_to_named_list(d, cls="bssm_prior") for d in self.prior])
+            r_obj.do_slot_assign("class", self.priorlabel)
+
+        elif isinstance(self.prior, dict):
+            prior_dict = {}
+            for key, value in self.prior.items():
+                prior_dict[key] = value if isinstance(value, str) else value[0]
+            # change min, max
+            if "min_val" in prior_dict:
+                prior_dict["min"] = prior_dict.pop("min_val")
+                prior_dict["max"] = prior_dict.pop("max_val")
+            with localconverter(ro.default_converter):
+                r_obj = ro.ListVector(prior_dict)
+            r_obj.do_slot_assign("class", self.priorlabel)
+        else:
+            raise TypeError('No matching type for prior!')
+
+        return r_obj
 
     @staticmethod
     def save_pick(x, i):
