@@ -137,7 +137,7 @@ class TestPrior:
         #     assert x == y[0]
 
         r_result1 = r_uniform(init = ro.r('c(0, 0.2)'), min = ro.r('c(-1.0, 0.001)'), max = ro.r('c(1.0, 1.2)'))
-        prior_obj = Prior(init=[0, 0.2], min_val=[-1.0, 0.001], max_val=[1.0, 1.2], distribution='uniform')._toR()
+        prior_obj = Prior(init=[0., 0.2], min_val=[-1.0, 0.001], max_val=[1.0, 1.2], distribution='uniform')._toR()
         comp_result = base.all_equal(prior_obj, r_result1)
         assert comp_result[0] == True
 

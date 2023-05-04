@@ -475,7 +475,7 @@ def create_regression(beta, xreg, n):
         return {'xreg': xreg, 'coefs': coefs, 'beta': beta}
 
 
-# Check MCMC
+# Check model inference
 def check_missingness(x):
     """Check the misingness arguments for the mcmc
     Args:

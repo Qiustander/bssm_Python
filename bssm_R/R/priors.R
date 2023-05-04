@@ -105,7 +105,7 @@ uniform_prior <- function(init, min, max) {
     structure(lapply(1:n, function(i)
       structure(list(prior_distribution = "uniform", init = safe_pick(init, i),
       min = safe_pick(min, i), max = safe_pick(max, i)),
-        class = "bssm_prior_list")),
+        class = "bssm_prior")),
       class = "bssm_prior_list")
   } else {
     structure(list(prior_distribution = "uniform", init = init,

@@ -10,6 +10,9 @@ pandas2ri.activate()
 base = importr('base', lib_loc="/usr/lib/R/library")
 stat = importr('stats', lib_loc="/usr/lib/R/library")
 
+
+# TODO: Combine the check of all models into one function
+
 class SSModel:
     """
     State space model class for various kinds of state space models, including:
@@ -20,7 +23,7 @@ class SSModel:
     ssm_nlg: General multivariate nonlinear Gaussian state space models
     ssm_sde: Univariate state space model with continuous SDE dynamics
     ssm_svm: Stochastic Volatility Model in state space model
-    bsm_lg: Basic Structural (Time Series) Model
+    bsm_lg: Gaussian Basic Structural (Time Series) Model
     bsm_ng: Non-Gaussian Basic Structural (Time Series) Model
     ar1_lg: Univariate Gaussian model with AR(1) latent process
     ar1_ng: Non-Gaussian model with AR(1) latent process
@@ -43,16 +46,16 @@ class SSModel:
             y (np.array): Observations as time series (or vector) of length \eqn{n}.
             obs_mtx (np.array): System matrix Z of the observation equation. Either a vector of length m, a m x n matrix.
             state_mtx (np.array): System matrix T of the state equation. Either a m x m matrix or a m x m x n array.
-            state_mtx_lower (np.array): Lower triangular matrix R the state equation. Either a m x k matrix or a m x k x n array.
+            state_mtx_noise (np.array): Noise coefficient matrix R (lower triangular) of the state equation. Either a m x k matrix or a m x k x n array.
             prior_mean (np.array): Prior mean for the initial state as a vector of length m.
             prior_cov (np.array): Prior covariance matrix for the initial state as m x m matrix.
             input_state (np.array): Intercept terms \eqn{C_t} for the state equation, given as a m times 1 or m times n matrix.
             input_obs (np.array): Intercept terms \eqn{D_t} for the observations equation, given as a scalar or vector of length n.
             init_theta (np.array): Initial values for the unknown hyperparameters theta (i.e. unknown variables excluding latent state variables).
-            noise_std (np.array): A vector H of standard deviations. Either a scalar or a vector of  length n.
+            obs_mtx_noise (np.array): Noise coefficient matrix H (lower triangular) for the observed euqation.
+                                        Denoted as standard deviations. Either a scalar or a vector of length n.
         Returns:
         """
-        #TODO: first initilize the dictionary with None -> input -> do the checking according to variable name
 
         size_y = check_y(self.y) # return time length and feature numbers
         n = size_y[0]
@@ -65,8 +68,8 @@ class SSModel:
         # create T - state matrix
         self.state_mtx = check_state_mtx(self.state_mtx, m, n)
 
-        # create R - lower state matrix
-        self.state_mtx_lower = check_mtx_lower(self.state_mtx_lower, m, n)
+        # create R - noise state matrix
+        self.state_mtx_noise = check_mtx_lower(self.state_mtx_noise, m, n)
 
         self.prior_mean = check_prior_mean(self.prior_mean, m)
         self.prior_cov = check_prior_cov(self.prior_cov, m)
@@ -74,7 +77,7 @@ class SSModel:
         self.input_obs = check_input_obs(self.input_obs, 1, n)
         self.input_state = check_input_state(self.input_state, m, n)
 
-        self.noise_std = check_noise_std(self.noise_std, 1, n)
+        self.obs_mtx_noise = check_noise_std(self.obs_mtx_noise, 1, n)
 
         self.model_type = "linear_gaussian"
 
@@ -85,7 +88,7 @@ class SSModel:
             y (np.array): Observations as multivariate time series as matrix with dimension n x p.
             obs_mtx (np.array): System matrix Z of the observation equation. Either p x m matrix or p x m x n tensor.
             state_mtx (np.array): System matrix T of the state equation. Either a m x m matrix or a m x m x n tensor.
-            state_mtx_lower (np.array): Lower triangular matrix R the state equation. Either a m x k matrix or a m x k x n array.
+            state_mtx_noise (np.array): Lower triangular matrix R the state equation. Either a m x k matrix or a m x k x n array.
             input_state (np.array): Intercept terms \eqn{C_t} for the state equation, given as m x n matrix.
             input_obs (np.array): Intercept terms \eqn{D_t} for the observations equation, given as a p x n matrix.
             noise_std (np.array): A vector H of standard deviations. Either a scalar or a vector of  length n.
@@ -105,8 +108,8 @@ class SSModel:
         # create T - state matrix
         self.state_mtx  = check_state_mtx(self.state_mtx, m, n)
 
-        # create R - lower state matrix
-        self.state_mtx_lower = check_mtx_lower(self.state_mtx_lower, m, n)
+        # create R - noise state matrix
+        self.state_mtx_noise = check_mtx_lower(self.state_mtx_noise, m, n)
 
         self.prior_mean = check_prior_mean(self.prior_mean, m)
         self.prior_cov = check_prior_cov(self.prior_cov, m)
@@ -127,7 +130,7 @@ class SSModel:
             y (np.array): Observations as time series (or vector) of length \eqn{n}.
             obs_mtx (np.array): System matrix Z of the observation equation. Either a vector of length m, a m x n matrix.
             state_mtx (np.array): System matrix T of the state equation. Either a m x m matrix or a m x m x n array.
-            state_mtx_lower (np.array): Lower triangular matrix R the state equation. Either a m x k matrix or a m x k x n array.
+            state_mtx_noise (np.array): Lower triangular matrix R the state equation. Either a m x k matrix or a m x k x n array.
             prior_mean (np.array): Prior mean for the initial state as a vector of length m.
             prior_cov (np.array): Prior covariance matrix for the initial state as m x m matrix.
             input_state (np.array): Intercept terms \eqn{C_t} for the state equation, given as a m times 1 or m times n matrix.
@@ -139,8 +142,7 @@ class SSModel:
                      theta. It's best to check the internal dimensions with str(model_object) as the dimensions of input arguments can differ from the final dimensions.
                      If any of these components is missing, it is assumed to be constant wrt. the eta.
             prior_fn (object): A function which returns log of prior density given input vector theta.
-            noise_std (np.array): A vector H of standard deviations. Either a scalar or a vector of  length n.
-            state_names (str): A character vector defining the names of the states.
+            obs_mtx_noise (np.array): A vector H of standard deviations. Either a scalar or a vector of  length n.
         Returns:
 
         """
@@ -199,21 +201,6 @@ class SSModel:
         if self.input_dict['distribution'] not in self.dist_list:
             raise AttributeError("No distribution found. Please check again.")
 
-        # size_y = check_y(self.input_dict['y'], multivariate=False, distribution=self.input_dict['distribution'])  # return time length and feature numbers
-        # n = size_y[0]
-        #
-        # self.input_dict['positive_const'] = check_positive_const(self.input_dict['positive_const'], self.input_dict['y'])
-        #
-        # self.input_dict['state_mtx_lower'] = check_mtx_lower(self.input_dict['state_mtx_lower'], m, n)
-        #
-        # self.input_dict['prior_mean'] = check_prior_mean(self.input_dict['prior_mean'], m)
-        # self.input_dict['prior_cov'] = check_prior_cov(self.input_dict['prior_cov'], m)
-        #
-        # self.input_dict['input_obs'] = check_input_obs(self.input_dict['input_obs'], p, n)
-        # self.input_dict['input_state'] = check_input_state(self.input_dict['input_state'], m, n)
-        #
-        # self.input_dict['noise_std'] = check_noise_std(self.input_dict['noise_std'], p, n, multivariate=True)
-
         self.model_type = "non_gaussian"
 
     def ar1_lg(self):
@@ -257,18 +244,21 @@ class SSModel:
         model_dict = self.__dict__
         if "obs_mtx" in model_dict: model_dict["Z"] = model_dict.pop("obs_mtx")
         if "state_mtx" in model_dict: model_dict["T"] = model_dict.pop("state_mtx")
-        if "state_mtx_lower" in model_dict: model_dict["R"] = model_dict.pop("state_mtx_lower")
+        if "state_mtx_noise" in model_dict: model_dict["R"] = model_dict.pop("state_mtx_noise")
         if "prior_mean" in model_dict: model_dict["a1"] = model_dict.pop("prior_mean")
-        if "noise_std" in model_dict: model_dict["H"] = model_dict.pop("noise_std")
+        if "obs_mtx_noise" in model_dict: model_dict["H"] = model_dict.pop("obs_mtx_noise")
         if "prior_cov" in model_dict: model_dict["P1"] = model_dict.pop("prior_cov")
         if "input_state" in model_dict: model_dict["C"] = model_dict.pop("input_state")
         if "input_obs" in model_dict: model_dict["D"] = model_dict.pop("input_obs")
 
         model_dict["y"] = pd.Series(model_dict["y"])
+        model_dict["theta"] = model_dict.pop("init_theta")
         model_type = model_dict.pop("model_type")
+        if model_type == "linear_gaussian":
+            model_type = "lineargaussian"
         model_name = model_dict.pop("model_name")
         # define prior fn
-        r_prior_code = ("""
+        r_prior_code = ro.r("""
                 prior_fn <- function(theta) {
           if(any(theta < 0)) {
             log_p <- -Inf
@@ -279,18 +269,30 @@ class SSModel:
         }""")
 
         # define update fn
-        r_update_code = ("""
+        r_update_code = ro.r("""
         update_fn <- function(theta) {
         R <- diag(c(0, theta[1], theta[2]))
           dim(R) <- c(3, 3, 1)
           list(R = R, H = theta[3])
         }""")
-        with localconverter(ro.default_converter):
-            r_obj = ro.ListVector(model_dict)
-        r_obj["prior_fn"] = ro.r["prior_fn"]
-        r_obj["update_fn"] = ro.r["update_fn"]
-        r_obj["xreg"] = ro.r.matrix(np.empty(0, 0), nrow=0, ncol=0)
-        r_obj["beta"] = ro.FloatVector(np.empty(0,))
-        r_obj.do_slot_assign("class", [model_name, model_type, "bssm_model"])
+        model_dict["prior_fn"] = ro.r["prior_fn"]
+        model_dict["update_fn"] = ro.r["update_fn"]
+        model_dict["xreg"] = np.zeros((0,0))
+        # model_dict["beta"] = ro.FloatVector(np.empty((0),))
+        model_dict["beta"] = ro.FloatVector([])
+        # model_dict["state_names"] = ro.r("""c("level", "b1", "b2")""")
+        name_order = ["y", "Z", "H", "T", "R", "a1", "P1",
+                      "D", "C", "update_fn", "prior_fn", "theta", "xreg", "beta"] # corresponding to R
+
+        r_obj = ro.ListVector.from_length(len(model_dict))
+        for i, x in enumerate(name_order):
+            with localconverter(ro.default_converter + pandas2ri.converter + ro.numpy2ri.converter):
+                obj_convert = ro.conversion.py2rpy(model_dict[x])
+                r_obj[i] = obj_convert
+
+        r_obj.do_slot_assign("names", ro.StrVector(name_order))
+        r_obj.do_slot_assign("class", ro.StrVector([model_name, model_type, "bssm_model"]))
+
+        return r_obj
 
 

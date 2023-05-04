@@ -4,7 +4,7 @@ import rpy2.robjects as ro
 from rpy2.robjects import numpy2ri
 from rpy2.robjects.packages import importr
 from Models.bssm_model import *
-from numpy.testing import assert_array_almost_equal_nulp
+from Inference.KF.kalman_smoother import KalmanSmoother
 import os.path as pth
 import os
 
@@ -16,26 +16,18 @@ numpy2ri.activate()
 # linked with other functions in the package. The simple call via ro.r("""source""")
 # will only create a simple object that miss the link.
 base = importr('base', lib_loc="/usr/lib/R/library")
-bssm = importr("bssm", lib_loc="/home/project/R/x86_64-pc-linux-gnu-library/4.3")
+bssm = importr('bssm', lib_loc=f"{pth.expanduser('~')}/R/x86_64-pc-linux-gnu-library/4.3")
 stat = importr('stats', lib_loc="/usr/lib/R/library")
 
 
-ro.r("""source('{path_name}')""".
-     format(path_name=pth.join(pth.abspath(pth.join(os.getcwd(), os.pardir, os.pardir)), 'bssm_R/R/models.R')))
-ro.r("""source('{path_name}')""".
-     format(path_name=pth.join(pth.abspath(pth.join(os.getcwd(), os.pardir, os.pardir)), 'bssm_R/R/check_arguments.R')))
-
-class TestModel:
+class TestKalmanSmoother:
     """
-    Test bssm Model
+    Test Kalman Smoother
     """
 
 ################### Test ssm_ulg ##################################
-    def test_ssmulg(self):
-        # currently use check_argument is enough
-        pass
 
-    def test_ssmulg_with_r(self):
+    def test_ksmoother_ssmulg(self):
         # define data
         ro.r("""
         n <- 100
@@ -73,27 +65,23 @@ class TestModel:
                  update_fn = update_fn, prior_fn = prior_fn,
                  state_names = c("level", "b1", "b2"),
                  # using default values, but being explicit for testing purposes
-                 C = matrix(0, 3, 1), D = numeric(1))""")
+                 C = matrix(0, 3, 1), D = numeric(1))
+        infer_result <- kfilter(model_r)
+        """)
 
         # define ssm
-        r_ssmulg = ro.r["model_r"]
-        # r_ssm_ulg = bssm.ssm_ulg(
-        # ro.FloatVector(ro.r["y"]), ro.r["Z"], ro.r["H"], ro.r["T"], ro.r["R"], ro.r["a1"], ro.r["P1"],
-        #   init_theta = ro.r("""c(1, 0.1, 0.1)"""),
-        #   update_fn = ro.r["update_fn"], prior_fn = ro.r["prior_fn"],
-        #   state_names = ro.r("""c("level", "b1", "b2")"""),
-        #   # using default values, but being explicit for testing purposes
-        #   C = ro.r("""matrix(0, 3, 1)"""), D = ro.r("""numeric(1)""")
-        #   )
+        r_result = ro.r["infer_result"]
+
         model_obj = SSModel(model_name="ssm_ulg", y=np.array(ro.r["y"]),
-                            obs_mtx=np.array(ro.r("Z")), obs_mtx_noise=ro.r("H"),
+                            obs_mtx=np.array(ro.r("Z")), noise_std=ro.r("H"),
                             init_theta=ro.r("""c(1, 0.1, 0.1)"""),
-                            state_mtx=np.array(ro.r("T")), state_mtx_noise = np.array(ro.r("R")),
+                            state_mtx=np.array(ro.r("T")), state_mtx_lower = np.array(ro.r("R")),
                             prior_mean=np.array(ro.r("a1")), prior_cov = np.array(ro.r("P1")),
                           input_state=ro.r("""matrix(0, 3, 1)"""), input_obs=np.array([0.]),
-                         )._toR()
+                         )
+        infer_result = KalmanSmoother(model_type="linear_gaussian", model=model_obj).infer_result
 
-        # comp_result = base.all_equal(r_ssmulg, model_obj)
-        for i in range(len(model_obj)):
-            g = base.all_equal(r_ssmulg[i], model_obj[i])
+        comp_result = base.all_equal(r_result, infer_result)
+        for i in range(len(infer_result)):
+            g = base.all_equal(r_result[i], infer_result[i])
             assert g[0] == True
