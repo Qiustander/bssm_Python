@@ -66,22 +66,26 @@ class TestKalmanSmoother:
                  state_names = c("level", "b1", "b2"),
                  # using default values, but being explicit for testing purposes
                  C = matrix(0, 3, 1), D = numeric(1))
-        infer_result <- kfilter(model_r)
+        infer_result <- smoother(model_r)
         """)
 
         # define ssm
         r_result = ro.r["infer_result"]
 
         model_obj = SSModel(model_name="ssm_ulg", y=np.array(ro.r["y"]),
-                            obs_mtx=np.array(ro.r("Z")), noise_std=ro.r("H"),
+                            obs_mtx=np.array(ro.r("Z")), obs_mtx_noise=ro.r("H"),
                             init_theta=ro.r("""c(1, 0.1, 0.1)"""),
-                            state_mtx=np.array(ro.r("T")), state_mtx_lower = np.array(ro.r("R")),
+                            state_mtx=np.array(ro.r("T")), state_mtx_noise = np.array(ro.r("R")),
                             prior_mean=np.array(ro.r("a1")), prior_cov = np.array(ro.r("P1")),
                           input_state=ro.r("""matrix(0, 3, 1)"""), input_obs=np.array([0.]),
                          )
-        infer_result = KalmanSmoother(model_type="linear_gaussian", model=model_obj).infer_result
+        model_type_case = model_obj.model_type_case()
+        model_obj = model_obj._toRssmulg(prior_fn=ro.r("prior_fn"), update_fn=ro.r("update_fn"))
+        infer_result = KalmanSmoother(model_type="linear_gaussian", model=model_obj,
+                                      model_type_case=model_type_case).infer_result
 
-        comp_result = base.all_equal(r_result, infer_result)
-        for i in range(len(infer_result)):
-            g = base.all_equal(r_result[i], infer_result[i])
-            assert g[0] == True
+        # The R code would start from n+1, so need to remove one column
+        g = base.all_equal(r_result[0], infer_result[0][:-1, :])
+        assert g[0] == True
+        g = base.all_equal(r_result[1], infer_result[1][:, :, :-1])
+        assert g[0] == True

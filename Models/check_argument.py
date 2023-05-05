@@ -163,9 +163,9 @@ def check_input_state(x, m, n):
     return x
 
 
-def check_noise_std(x, p, n, multivariate=False):
-    """Check vector H of standard deviations of noise. Either a scalar or a vector of  length n,
-        or p x p matrix or p x p x n array.
+def check_obs_mtx_noise(x, p, n, multivariate=False):
+    """Check Noise coefficient matrix H (lower triangular) for the observed euqation.
+        Either a scalar or a vector of  length n, or p x p matrix or p x p x n array.
     Args:
         x:
         p:
@@ -272,9 +272,9 @@ def check_state_mtx(x, m, n):
     return x
 
 
-def check_mtx_lower(x, m, n):
+def check_mtx_noise(x, m, n):
     """
-    Check lower triangular matrix R the state equation. Either a m x k matrix or a m x k x n array.
+    Check noise  matrix R (lower triangular) the state equation. Either a m x k matrix or a m x k x n array.
     Args:
         x:
         m:

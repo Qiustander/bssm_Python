@@ -23,13 +23,14 @@ class KalmanFilter:
 
         def_kfmethod = getattr(self, f"kf_{kwargs['model_type']}")
 
-        self.infer_result = def_kfmethod(model=kwargs['model'])
+        self.infer_result = def_kfmethod(model=kwargs['model'],
+                                         model_type_case=kwargs['model_type_case'])
 
-    def kf_linear_gaussian(self, model):
+    def kf_linear_gaussian(self, model, model_type_case):
         """Kalman Filter for Linear Gaussian case.
         Args:
             model: bssm model object
-
+            model_type_case: model type case
         Returns:
             infer_result: log-likelihood (approximate in non-Gaussian case),
             one-step-ahead predictions \code{at} and filtered estimates
@@ -38,9 +39,8 @@ class KalmanFilter:
             the input time series.
 
         """
-        model_type = model.model_type_case()
         # check_missingness(model)
 
-        infer_result = bssm.gaussian_kfilter(model._toR(), model_type=model_type)
+        infer_result = bssm.gaussian_kfilter(model, model_type=model_type_case)
 
         return infer_result

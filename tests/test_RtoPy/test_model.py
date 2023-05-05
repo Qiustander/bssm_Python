@@ -16,8 +16,9 @@ numpy2ri.activate()
 # linked with other functions in the package. The simple call via ro.r("""source""")
 # will only create a simple object that miss the link.
 base = importr('base', lib_loc="/usr/lib/R/library")
-bssm = importr("bssm", lib_loc="/home/project/R/x86_64-pc-linux-gnu-library/4.3")
+bssm = importr('bssm', lib_loc=f"{pth.expanduser('~')}/R/x86_64-pc-linux-gnu-library/4.3")
 stat = importr('stats', lib_loc="/usr/lib/R/library")
+kfas = importr('KFAS', lib_loc=f"{pth.expanduser('~')}/R/x86_64-pc-linux-gnu-library/4.3")
 
 
 ro.r("""source('{path_name}')""".
@@ -91,9 +92,37 @@ class TestModel:
                             state_mtx=np.array(ro.r("T")), state_mtx_noise = np.array(ro.r("R")),
                             prior_mean=np.array(ro.r("a1")), prior_cov = np.array(ro.r("P1")),
                           input_state=ro.r("""matrix(0, 3, 1)"""), input_obs=np.array([0.]),
-                         )._toR()
+                         )._toRssmulg(prior_fn=ro.r("prior_fn"), update_fn=ro.r("update_fn"))
 
         # comp_result = base.all_equal(r_ssmulg, model_obj)
         for i in range(len(model_obj)):
             g = base.all_equal(r_ssmulg[i], model_obj[i])
             assert g[0] == True
+            print(f"test {r_ssmulg.names[i]} pass!")
+
+    def test_ssmmlg_with_r(self):
+        # define data
+        ro.r("""
+            data("GlobalTemp", package = "KFAS")
+            model_r <- ssm_mlg(GlobalTemp, H = matrix(c(0.15,0.05,0, 0.05), 2, 2),
+              R = 0.05, Z = matrix(1, 2, 1), T = 1, P1 = 10,
+              state_names = "temperature",
+              # using default values, but being explicit for testing purposes
+              D = matrix(0, 2, 1), C = matrix(0, 1, 1))
+                      """)
+
+        # define ssm
+        r_ssmulg = ro.r["model_r"]
+        model_obj = SSModel(model_name="ssm_mlg", y=np.array(ro.r("model_r$y")),
+                            obs_mtx=np.array(ro.r("model_r$Z")), obs_mtx_noise=ro.r("model_r$H"),
+                            init_theta=ro.r("model_r$theta"),
+                            state_mtx=np.array(ro.r("model_r$T")), state_mtx_noise=np.array(ro.r("model_r$R")),
+                            prior_mean=np.array(ro.r("model_r$a1")), prior_cov=np.array(ro.r("model_r$P1")),
+                            input_state=np.array(ro.r("model_r$C")), input_obs=np.array(ro.r("model_r$D")),
+                            )._toRssmulg(prior_fn=ro.r("model_r$prior_fn"), update_fn=ro.r("model_r$update_fn"))
+
+        # comp_result = base.all_equal(r_ssmulg, model_obj)
+        for i in range(len(model_obj)):
+            g = base.all_equal(r_ssmulg[i], model_obj[i])
+            assert g[0] == True
+            print(f"test {r_ssmulg.names[i]} pass!")

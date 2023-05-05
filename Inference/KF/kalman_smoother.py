@@ -20,24 +20,20 @@ class KalmanSmoother:
 
         def_kfmethod = getattr(self, f"ksmoother_{kwargs['model_type']}")
 
-        self.infer_result = def_kfmethod(model=kwargs['model'])
+        self.infer_result = def_kfmethod(model=kwargs['model'],
+                                         model_type_case=kwargs['model_type_case'])
 
-    def ksmoother_linear_gaussian(self, model):
+    def ksmoother_linear_gaussian(self, model, model_type_case):
         """Kalman Soother for Linear Gaussian case.
         Args:
             model: bssm model object
-
+            model_type_case: model type case
         Returns:
-            infer_result: log-likelihood (approximate in non-Gaussian case),
-            one-step-ahead predictions \code{at} and filtered estimates
-            \code{att} of states, and the corresponding variances \code{Pt}
-            and \code{Ptt} up to the time point n+1 where n is the length of
-            the input time series.
+            infer_result: smoothed estimates of the states, and smoothed variances.
 
         """
-        model_type = model.model_type_case()
         # check_missingness(model)
 
-        infer_result = bssm.gaussian_smoother(model._toR(), model_type=model_type)
+        infer_result = bssm.gaussian_smoother(model, model_type=model_type_case)
 
         return infer_result

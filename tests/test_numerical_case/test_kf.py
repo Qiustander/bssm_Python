@@ -83,9 +83,11 @@ class TestKalmanFilter:
                             prior_mean=np.array(ro.r("a1")), prior_cov = np.array(ro.r("P1")),
                           input_state=ro.r("""matrix(0, 3, 1)"""), input_obs=np.array([0.]),
                          )
-        infer_result = KalmanFilter(model_type="linear_gaussian", model=model_obj).infer_result
+        model_type_case = model_obj.model_type_case()
+        model_obj = model_obj._toRssmulg(prior_fn=ro.r("prior_fn"), update_fn=ro.r("update_fn"))
+        infer_result = KalmanFilter(model_type="linear_gaussian",
+                                    model=model_obj, model_type_case=model_type_case).infer_result
 
-        comp_result = base.all_equal(r_result, infer_result)
         for i in range(len(infer_result)):
             g = base.all_equal(r_result[i], infer_result[i])
             assert g[0] == True
