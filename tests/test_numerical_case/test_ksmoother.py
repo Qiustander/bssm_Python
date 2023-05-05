@@ -89,3 +89,38 @@ class TestKalmanSmoother:
         assert g[0] == True
         g = base.all_equal(r_result[1], infer_result[1][:, :, :-1])
         assert g[0] == True
+
+    ################### Test ssm_ulg ##################################
+
+    def test_ksmoother_ssmmlg(self):
+        # define data
+        ro.r("""
+            data("GlobalTemp", package = "KFAS")
+            model_r <- ssm_mlg(GlobalTemp, H = matrix(c(0.15,0.05,0, 0.05), 2, 2),
+              R = 0.05, Z = matrix(1, 2, 1), T = 1, P1 = 10,
+              state_names = "temperature",
+              # using default values, but being explicit for testing purposes
+              D = matrix(0, 2, 1), C = matrix(0, 1, 1))
+        infer_result <- smoother(model_r)
+        """)
+
+        # define ssm
+        r_result = ro.r["infer_result"]
+        model_obj = SSModel(model_name="ssm_mlg", y=np.array(ro.r("model_r$y")),
+                            obs_mtx=np.array(ro.r("model_r$Z")), obs_mtx_noise=ro.r("model_r$H"),
+                            init_theta=ro.r("model_r$theta"),
+                            state_mtx=np.array(ro.r("model_r$T")), state_mtx_noise=np.array(ro.r("model_r$R")),
+                            prior_mean=np.array(ro.r("model_r$a1")), prior_cov=np.array(ro.r("model_r$P1")),
+                            input_state=np.array(ro.r("model_r$C")), input_obs=np.array(ro.r("model_r$D")),
+                            )
+        model_type_case = model_obj.model_type_case()
+        model_obj = model_obj._toRssmulg(prior_fn=ro.r("""prior_fn = function(theta) {0}"""),
+                                         update_fn=ro.r("""update_fn = function(theta) {0}"""))
+        infer_result = KalmanSmoother(model_type="linear_gaussian", model=model_obj,
+                                      model_type_case=model_type_case).infer_result
+
+        # The R code would start from n+1, so need to remove one column
+        g = base.all_equal(r_result[0], infer_result[0][:-1, :])
+        assert g[0] == True
+        g = base.all_equal(r_result[1], infer_result[1][:, :, :-1])
+        assert g[0] == True

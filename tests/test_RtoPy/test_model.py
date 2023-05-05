@@ -112,7 +112,7 @@ class TestModel:
                       """)
 
         # define ssm
-        r_ssmulg = ro.r["model_r"]
+        r_ssmmlg = ro.r["model_r"]
         model_obj = SSModel(model_name="ssm_mlg", y=np.array(ro.r("model_r$y")),
                             obs_mtx=np.array(ro.r("model_r$Z")), obs_mtx_noise=ro.r("model_r$H"),
                             init_theta=ro.r("model_r$theta"),

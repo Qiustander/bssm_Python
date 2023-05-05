@@ -197,7 +197,6 @@ def check_obs_mtx_noise(x, p, n, multivariate=False):
 
 #### Check system matrix
 
-
 def check_obs_mtx(x, p, n, multivariate=False):
     """
     Check system matrix Z of the observation equation.
