@@ -120,7 +120,6 @@ class SSModel:
 
         self.model_type = "linear_gaussian"
 
-
     def ssm_ung(self):
         """
         General univariate non-Gaussian state space model
@@ -197,8 +196,6 @@ class SSModel:
         Returns:
 
         """
-        if self.input_dict['distribution'] not in self.dist_list:
-            raise AttributeError("No distribution found. Please check again.")
 
         self.model_type = "non_gaussian"
 
