@@ -4,7 +4,7 @@ import rpy2.robjects as ro
 from rpy2.robjects import numpy2ri
 from rpy2.robjects.packages import importr
 from Models.bssm_model import *
-from Inference.KF.kalman_smoother import KalmanSmoother
+from Inference.KF.kalman_smoother_R import KalmanSmoother
 import os.path as pth
 import os
 

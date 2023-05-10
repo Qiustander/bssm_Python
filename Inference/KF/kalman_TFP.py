@@ -1,14 +1,22 @@
-from Models.check_argument import check_missingness
-from rpy2.robjects.packages import importr
-import os.path as pth
-base = importr('base', lib_loc="/usr/lib/R/library")
-bssm = importr('bssm', lib_loc=f"{pth.expanduser('~')}/R/x86_64-pc-linux-gnu-library/4.3")
+import tensorflow as tf
+import tensorflow_probability as tfp
+tfd = tfp.distributions
+import collections
+
+
+"""
+Implement the Kalman filter via Tensorflow Probability official model
+
+ssm_ulg & ssm_mlg: tfd.LinearGaussianStateSpaceModel
+bsm_lg: tfp.sts.LocalLevelStateSpaceModel 
+
+"""
 
 
 class KalmanFilter:
     """
     Runs the Kalman filter for the given model,
-    and returns the filtered estimates and one-step-ahead predictions of the
+    and returns the filteredx estimates and one-step-ahead predictions of the
     states \eqn{\alpha_t} given the data up to time \eqn{t}. For non-Gaussian models,
     the filtering is based on the approximate Gaussian model.
 
@@ -39,8 +47,3 @@ class KalmanFilter:
             the input time series.
 
         """
-        # check_missingness(model)
-
-        infer_result = bssm.gaussian_kfilter(model, model_type=model_type_case)
-
-        return infer_result

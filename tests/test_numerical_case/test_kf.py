@@ -4,7 +4,7 @@ import rpy2.robjects as ro
 from rpy2.robjects import numpy2ri
 from rpy2.robjects.packages import importr
 from Models.bssm_model import *
-from Inference.KF.kalman_filter import KalmanFilter
+from Inference.KF.kalman_filter_R import KalmanFilter
 import os.path as pth
 import os
 
