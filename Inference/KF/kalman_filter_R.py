@@ -1,6 +1,7 @@
 import os.path as pth
 
 from rpy2.robjects.packages import importr
+from runtime_wrap import get_runtime
 
 base = importr('base', lib_loc="/usr/lib/R/library")
 bssm = importr('bssm', lib_loc=f"{pth.expanduser('~')}/R/x86_64-pc-linux-gnu-library/4.3")
@@ -40,8 +41,15 @@ class KalmanFilter:
             the input time series.
 
         """
-        # check_missingness(model)
 
-        infer_result = bssm.gaussian_kfilter(model, model_type=model_type_case)
+        # infer_result = bssm.gaussian_kfilter(model, model_type=model_type_case)
+        infer_result = self.run_kf(bssm.gaussian_kfilter, model, model_type_case)
 
         return infer_result
+
+
+    # Only for runtime testing
+    @staticmethod
+    @get_runtime(loop_time=10)
+    def run_kf(kf_model, model, model_type_case):
+        return kf_model(model, model_type=model_type_case)

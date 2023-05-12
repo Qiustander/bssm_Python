@@ -38,10 +38,18 @@ model <- ssm_ulg(y, Z, H, T, R, a1, P1,
                  # using default values, but being explicit for testing purposes
                  C = matrix(0, 3, 1), D = numeric(1))
 
-
-# system.time(kfilter(model))
-benchmark("kfilter" = {result <- kfilter(model)},
-
-          replications = 100,
-          columns = c("test", "replications", "elapsed",
-                       "user.self", "sys.self"))
+total_time <- 0
+for (x in 1:10) {
+    start_time <- Sys.time()
+    result <- kfilter(model)
+    end_time <- Sys.time()
+    total_time <- total_time + end_time - start_time
+}
+print(total_time/10)
+# result <- kfilter(model)
+# # system.time(kfilter(model))
+# benchmark("kfilter" = {result <- kfilter(model)},
+#
+#           replications = 10,
+#           columns = c("test", "replications", "elapsed",
+#                        "user.self", "sys.self"))

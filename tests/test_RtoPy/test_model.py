@@ -4,7 +4,7 @@ import rpy2.robjects as ro
 from rpy2.robjects import numpy2ri
 from rpy2.robjects.packages import importr
 from Models.bssm_model import *
-from numpy.testing import assert_array_almost_equal_nulp
+from numpy.testing import assert_array_almost_equal_nulp, assert_almost_equal
 import os.path as pth
 import os
 
@@ -78,25 +78,16 @@ class TestModel:
 
         # define ssm
         r_ssmulg = ro.r["model_r"]
-        # r_ssm_ulg = bssm.ssm_ulg(
-        # ro.FloatVector(ro.r["y"]), ro.r["Z"], ro.r["H"], ro.r["T"], ro.r["R"], ro.r["a1"], ro.r["P1"],
-        #   init_theta = ro.r("""c(1, 0.1, 0.1)"""),
-        #   update_fn = ro.r["update_fn"], prior_fn = ro.r["prior_fn"],
-        #   state_names = ro.r("""c("level", "b1", "b2")"""),
-        #   # using default values, but being explicit for testing purposes
-        #   C = ro.r("""matrix(0, 3, 1)"""), D = ro.r("""numeric(1)""")
-        #   )
         model_obj = SSModel(model_name="ssm_ulg", y=np.array(ro.r["y"]),
-                            obs_mtx=np.array(ro.r("Z")), obs_mtx_noise=ro.r("H"),
+                            obs_mtx=np.array(ro.r("Z")), obs_mtx_noise=ro.r("H"), state_dim=np.array(ro.r("T")).shape[0],
                             init_theta=ro.r("""c(1, 0.1, 0.1)"""),
                             state_mtx=np.array(ro.r("T")), state_mtx_noise = np.array(ro.r("R")),
                             prior_mean=np.array(ro.r("a1")), prior_cov = np.array(ro.r("P1")),
                           input_state=ro.r("""matrix(0, 3, 1)"""), input_obs=np.array([0.]),
                          )._toRssmulg(prior_fn=ro.r("prior_fn"), update_fn=ro.r("update_fn"))
 
-        # comp_result = base.all_equal(r_ssmulg, model_obj)
         for i in range(len(model_obj)):
-            g = base.all_equal(r_ssmulg[i], model_obj[i])
+            g = base.all_equal(r_ssmulg[i], model_obj[i], tolerance=1e-6)
             assert g[0] == True
             print(f"test {r_ssmulg.names[i]} pass!")
 
@@ -113,7 +104,7 @@ class TestModel:
 
         # define ssm
         r_ssmmlg = ro.r["model_r"]
-        model_obj = SSModel(model_name="ssm_mlg", y=np.array(ro.r("model_r$y")),
+        model_obj = SSModel(model_name="ssm_mlg", y=np.array(ro.r("model_r$y")), state_dim=np.array(ro.r("model_r$T")).shape[0],
                             obs_mtx=np.array(ro.r("model_r$Z")), obs_mtx_noise=ro.r("model_r$H"),
                             init_theta=ro.r("model_r$theta"),
                             state_mtx=np.array(ro.r("model_r$T")), state_mtx_noise=np.array(ro.r("model_r$R")),
@@ -123,6 +114,6 @@ class TestModel:
 
         # comp_result = base.all_equal(r_ssmulg, model_obj)
         for i in range(len(model_obj)):
-            g = base.all_equal(r_ssmulg[i], model_obj[i])
+            g = base.all_equal(r_ssmmlg[i], model_obj[i], tolerance=1e-6)
             assert g[0] == True
-            print(f"test {r_ssmulg.names[i]} pass!")
+            print(f"test {r_ssmmlg.names[i]} pass!")

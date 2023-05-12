@@ -9,9 +9,13 @@ numpy2ri.activate()
 pandas2ri.activate()
 base = importr('base', lib_loc="/usr/lib/R/library")
 stat = importr('stats', lib_loc="/usr/lib/R/library")
+import tensorflow as tf
+import tensorflow_probability as tfp
+tfd = tfp.distributions
 
 
 # TODO: Combine the check of all models into one function
+# TODO: Rewrite all SSMModel as the TFP class
 
 class SSModel:
     """
@@ -56,29 +60,27 @@ class SSModel:
                                         Denoted as standard deviations. Either a scalar or a vector of length n.
         Returns:
         """
-
+        m = self.state_dim
+        self.y = self.y[..., None].astype("float32")
         size_y = check_y(self.y) # return time length and feature numbers
         n = size_y[0]
 
         # create Z - obs matrix
-        obs_mtx = check_obs_mtx(self.obs_mtx, 1, n)
-        m = obs_mtx.shape[0]
-        self.obs_mtx = obs_mtx
+        self.obs_mtx = check_obs_mtx(self.obs_mtx, 1, n, m).astype("float32")
 
         # create T - state matrix
-        self.state_mtx = check_state_mtx(self.state_mtx, m, n)
+        self.state_mtx = check_state_mtx(self.state_mtx, m, n).astype("float32")
 
         # create R - noise state matrix
-        self.state_mtx_noise = check_mtx_noise(self.state_mtx_noise, m, n)
+        self.state_mtx_noise = check_state_noise(self.state_mtx_noise, m, n).astype("float32")
 
-        self.prior_mean = check_prior_mean(self.prior_mean, m)
-        self.prior_cov = check_prior_cov(self.prior_cov, m)
+        self.prior_mean = check_prior_mean(self.prior_mean, m).astype("float32")
+        self.prior_cov = check_prior_cov(self.prior_cov, m).astype("float32")
 
-        self.input_obs = check_input_obs(self.input_obs, 1, n)
-        self.input_state = check_input_state(self.input_state, m, n)
+        self.input_obs = check_input_obs(self.input_obs, 1, n).astype("float32")
+        self.input_state = check_input_state(self.input_state, m, n).astype("float32")
 
-        self.obs_mtx_noise = check_obs_mtx_noise(self.obs_mtx_noise, 1, n, multivariate=True)
-
+        self.obs_mtx_noise = check_obs_mtx_noise(self.obs_mtx_noise, 1, n, multivariate=False).astype("float32")
         self.model_type = "linear_gaussian"
 
     def ssm_mlg(self):
@@ -95,20 +97,18 @@ class SSModel:
             Others refer to ssm_ulg.
         Returns:
         """
-
+        m = self.state_dim
         size_y = check_y(self.y, multivariate=True) # return time length and feature numbers
         n, p = size_y
 
         # create Z - obs matrix
-        obs_mtx = check_obs_mtx(self.obs_mtx, p, n, multivariate=True)
-        m = obs_mtx.shape[-1]
-        self.obs_mtx = obs_mtx
+        self.obs_mtx = check_obs_mtx(self.obs_mtx, p, n, m, multivariate=True)
 
         # create T - state matrix
         self.state_mtx = check_state_mtx(self.state_mtx, m, n)
 
         # create R - noise state matrix
-        self.state_mtx_noise = check_mtx_noise(self.state_mtx_noise, m, n)
+        self.state_mtx_noise = check_state_noise(self.state_mtx_noise, m, n)
 
         self.prior_mean = check_prior_mean(self.prior_mean, m)
         self.prior_cov = check_prior_cov(self.prior_cov, m)
@@ -207,6 +207,9 @@ class SSModel:
         self.model_type = "non_gaussian"
 
 
+
+    # For R usage
+
     def model_type_case(self):
         if self.model_type == "linear_gaussian":
             return ["ssm_mlg", "ssm_ulg", "bsm_lg", "ar1_lg"].index(self.model_name)
@@ -240,29 +243,56 @@ class SSModel:
             r_obj: ssm_model for R
         """
         # the prior function and update function, use the original version.
+
+        """
+        Some translation from TFP to R:
+        obs_mtx: observation_size, latent_size, time_length -> Z univarate only m, or m x n, no observation, multivariate three dim
+        state_mtx: latent_size, latent_size, timelength -> T no problem
+        input_obs: observation_size -> D  univariate: vector, multivariate: p x n
+        input_state: latent_size -> C univaraite m x 1. m x n multivariate  m x n 
+        obs_noise: observation_size, observation_size -> H  univaraite: 1 or n, multivaraite: p x px n
+        state_noise: latent_size, latent_size -> R no problem
+        """
         model_dict = self.__dict__
         if "obs_mtx" in model_dict: model_dict["Z"] = model_dict.pop("obs_mtx")
         if "state_mtx" in model_dict: model_dict["T"] = model_dict.pop("state_mtx")
+        if len(model_dict["T"].shape) == 2: #state mtx
+            model_dict["T"] = model_dict["T"][..., None]
         if "state_mtx_noise" in model_dict: model_dict["R"] = model_dict.pop("state_mtx_noise")
+        if len(model_dict["R"].shape) == 2: #state mtx noise
+            model_dict["R"] = model_dict["R"][..., None]
         if "prior_mean" in model_dict: model_dict["a1"] = model_dict.pop("prior_mean")
         if "obs_mtx_noise" in model_dict: model_dict["H"] = model_dict.pop("obs_mtx_noise")
         if "prior_cov" in model_dict: model_dict["P1"] = model_dict.pop("prior_cov")
         if "input_state" in model_dict: model_dict["C"] = model_dict.pop("input_state")
+        if len(model_dict["C"].shape) == 1: # obs noise
+            model_dict["C"] = model_dict["C"][..., None]
         if "input_obs" in model_dict: model_dict["D"] = model_dict.pop("input_obs")
-
         model_dict["theta"] = model_dict.pop("init_theta")
         model_type = model_dict.pop("model_type")
         if model_type == "linear_gaussian":
             model_type = "lineargaussian"
         model_name = model_dict.pop("model_name")
+        model_dict.pop("state_dim")
 
         if model_name == "ssm_ulg":
+            model_dict["Z"] = model_dict["Z"][0]
+            if len(model_dict["H"].shape) == 2:  # obs noise
+                model_dict["H"] = model_dict["H"][0]
             model_dict["xreg"] = np.zeros((0, 0))
             model_dict["beta"] = ro.FloatVector([])
-            model_dict["y"] = pd.Series(model_dict["y"])
+            model_dict["y"] = pd.Series(model_dict["y"].flatten())
             name_order = ["y", "Z", "H", "T", "R", "a1", "P1",
                       "D", "C", "update_fn", "prior_fn", "theta", "xreg", "beta"] # corresponding to R
         elif model_name == "ssm_mlg":
+            if len(model_dict["Z"].shape) == 2:  # state mtx
+                model_dict["Z"] = model_dict["Z"][..., None]
+            if len(model_dict["C"].shape) == 1:  # obs noise
+                model_dict["C"] = model_dict["C"][..., None]
+            if len(model_dict["D"].shape) == 1:  # obs noise
+                model_dict["D"] = model_dict["D"][..., None]
+            if len(model_dict["H"].shape) == 2:  # obs noise
+                model_dict["H"] = model_dict["H"][..., None]
             name_order = ["y", "Z", "H", "T", "R", "a1", "P1",
                       "D", "C", "update_fn", "prior_fn", "theta"] # corresponding to R
         model_dict["prior_fn"] = prior_fn
@@ -279,5 +309,3 @@ class SSModel:
         r_obj.do_slot_assign("class", ro.StrVector([model_name, model_type, "bssm_model"]))
 
         return r_obj
-
-

@@ -37,10 +37,6 @@ ro.r(r_code)
 
 # Convert R objects to Python
 n = ro.r("n")[0]
-# x1 = np.array(ro.r("x1"))
-# x2 = np.array(ro.r("x2"))
-# b1 = np.array(ro.r("b1"))
-# b2 = np.array(ro.r("b2"))
 y = np.array(ro.r("y"))
 
 obs_mtx = np.array(ro.r("Z"))

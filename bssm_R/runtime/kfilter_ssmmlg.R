@@ -10,8 +10,17 @@ model_temp <- ssm_mlg(GlobalTemp, H = matrix(c(0.15,0.05,0, 0.05), 2, 2),
 z <-matrix(1, 2, 1)
 h<-matrix(c(0.15,0.05,0, 0.05), 2, 2)
 
-benchmark("kfilter" = {result <- kfilter(model_temp)},
+# benchmark("kfilter" = {result <- kfilter(model_temp)},
+#
+#           replications = 100,
+#           columns = c("test", "replications", "elapsed",
+#                        "user.self", "sys.self"))
 
-          replications = 100,
-          columns = c("test", "replications", "elapsed",
-                       "user.self", "sys.self"))
+total_time <- 0
+for (x in 1:10) {
+    start_time <- Sys.time()
+    result <- kfilter(model_temp)
+    end_time <- Sys.time()
+    total_time <- total_time + end_time - start_time
+}
+print(total_time/10)
