@@ -4,6 +4,7 @@ tfd = tfp.distributions
 import collections
 from runtime_wrap import get_runtime
 
+
 class KalmanFilter:
     """
     Implement the Kalman filter via Tensorflow Probability official model
@@ -21,9 +22,9 @@ class KalmanFilter:
 
         self.infer_result = def_kfmethod(model=kwargs['model'])
 
-    # @tf.function
+    @tf.function
     def kf_linear_gaussian(self, model):
-        """Kalman Filter for Linear Gaussian case.
+        """Kalman Filter for Linear Gaussian case, including ssm_ulg & ssm_mlg & ar1_lg
         Args:
             model: bssm model object
             The input and output control variables are combined in the noise process.
@@ -92,15 +93,18 @@ class KalmanFilter:
         )
 
 
-        # infer_result = lg_model.forward_filter(tf.convert_to_tensor(observation))
-        infer_result = self.run_kf(lg_model, tf.convert_to_tensor(observation))
+        infer_result = lg_model.forward_filter(tf.convert_to_tensor(observation))
+        # infer_result = self.run_kf(lg_model, tf.convert_to_tensor(observation))
         return infer_result
 
-    # Only for runtime testing
-    @staticmethod
-    @get_runtime(loop_time=10)
-    def run_kf(kf_model, observation):
-        return kf_model.forward_filter(observation)
+
+
+    # """Only for runtime testing
+    # """
+    # @staticmethod
+    # @get_runtime(loop_time=10)
+    # def run_kf(kf_model, observation):
+    #     return kf_model.forward_filter(observation)
 
 
 def process_tv(model, attritube):

@@ -41,9 +41,8 @@ class KalmanFilter:
             the input time series.
 
         """
-
-        # infer_result = bssm.gaussian_kfilter(model, model_type=model_type_case)
-        infer_result = self.run_kf(bssm.gaussian_kfilter, model, model_type_case)
+        self.run_kf(bssm.gaussian_kfilter, model, model_type_case)
+        infer_result = bssm.gaussian_kfilter(model, model_type=model_type_case)
 
         return infer_result
 

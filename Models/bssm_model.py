@@ -48,6 +48,7 @@ class SSModel:
         """General univariate linear-Gaussian state space models
         Args:
             y (np.array): Observations as time series (or vector) of length \eqn{n}.
+            state_dim (int): Dimension of state varaibles.
             obs_mtx (np.array): System matrix Z of the observation equation. Either a vector of length m, a m x n matrix.
             state_mtx (np.array): System matrix T of the state equation. Either a m x m matrix or a m x m x n array.
             state_mtx_noise (np.array): Noise coefficient matrix R (lower triangular) of the state equation. Either a m x k matrix or a m x k x n array.
@@ -61,12 +62,11 @@ class SSModel:
         Returns:
         """
         m = self.state_dim
-        self.y = self.y[..., None].astype("float32")
-        size_y = check_y(self.y) # return time length and feature numbers
-        n = size_y[0]
+        size_y, self.y = check_y(self.y.astype("float32")) # return time length and feature numbers
+        n, p = size_y
 
         # create Z - obs matrix
-        self.obs_mtx = check_obs_mtx(self.obs_mtx, 1, n, m).astype("float32")
+        self.obs_mtx = check_obs_mtx(self.obs_mtx, p, n, m).astype("float32")
 
         # create T - state matrix
         self.state_mtx = check_state_mtx(self.state_mtx, m, n).astype("float32")
@@ -77,16 +77,17 @@ class SSModel:
         self.prior_mean = check_prior_mean(self.prior_mean, m).astype("float32")
         self.prior_cov = check_prior_cov(self.prior_cov, m).astype("float32")
 
-        self.input_obs = check_input_obs(self.input_obs, 1, n).astype("float32")
+        self.input_obs = check_input_obs(self.input_obs, p, n).astype("float32")
         self.input_state = check_input_state(self.input_state, m, n).astype("float32")
 
-        self.obs_mtx_noise = check_obs_mtx_noise(self.obs_mtx_noise, 1, n, multivariate=False).astype("float32")
+        self.obs_mtx_noise = check_obs_mtx_noise(self.obs_mtx_noise, p, n).astype("float32")
         self.model_type = "linear_gaussian"
 
     def ssm_mlg(self):
         """General multivariate linear Gaussian state space models
         Args:
             y (np.array): Observations as multivariate time series as matrix with dimension n x p.
+            state_dim (int): Dimension of state varaibles.
             obs_mtx (np.array): System matrix Z of the observation equation. Either p x m matrix or p x m x n tensor.
             state_mtx (np.array): System matrix T of the state equation. Either a m x m matrix or a m x m x n tensor.
             state_mtx_noise (np.array): Lower triangular matrix R the state equation. Either a m x k matrix or a m x k x n array.
@@ -98,11 +99,11 @@ class SSModel:
         Returns:
         """
         m = self.state_dim
-        size_y = check_y(self.y, multivariate=True) # return time length and feature numbers
+        size_y, self.y = check_y(self.y.astype("float32")) # return time length and feature numbers
         n, p = size_y
 
         # create Z - obs matrix
-        self.obs_mtx = check_obs_mtx(self.obs_mtx, p, n, m, multivariate=True)
+        self.obs_mtx = check_obs_mtx(self.obs_mtx, p, n, m)
 
         # create T - state matrix
         self.state_mtx = check_state_mtx(self.state_mtx, m, n)
@@ -116,7 +117,7 @@ class SSModel:
         self.input_obs = check_input_obs(self.input_obs, p, n)
         self.input_state = check_input_state(self.input_state, m, n)
 
-        self.obs_mtx_noise = check_obs_mtx_noise(self.obs_mtx_noise, p, n, multivariate=True)
+        self.obs_mtx_noise = check_obs_mtx_noise(self.obs_mtx_noise, p, n)
 
         self.model_type = "linear_gaussian"
 
@@ -152,11 +153,12 @@ class SSModel:
 
     def ssm_nlg(self):
         pass
+
+
     def ssm_sde(self):
         pass
     def ssm_svm(self):
         self.model_type = "non_gaussian"
-
 
     def bsm_lg(self):
         self.model_type = "linear_gaussian"
@@ -200,17 +202,54 @@ class SSModel:
         self.model_type = "non_gaussian"
 
     def ar1_lg(self):
-        self.model_type = "linear_gaussian"
+        """Constructs a simple Gaussian model where the state dynamics
+            follow an AR(1) process.
+        Args:
+            y (np.array): Observations as time series (or vector) of length \eqn{n}.
+            mu_state (np.array): The mean of the AR(1) process, fixed 1 x 1 scale or
+            from a distribution by the parameter \theta_1
+            rho_state (np.array): Autoregressive coefficient. It is a distribution with prior value.
+            state_mtx_noise (np.array): Noise coefficient matrix R (lower triangular) of the state equation. Either a m x k matrix or a m x k x n array.
+            obs_mtx_noise (np.array): Noise coefficient matrix H (lower triangular) for the observed euqation.
+                                        Denoted as standard deviations. Either a scalar or a vector of length n.
+        Returns:
 
+        """
+        check_rho(self.rho_state)
+        check_mu(self.mu_state)
+
+        m = self.state_dim
+        size_y, self.y = check_y(self.y.astype("float32")) # return time length and feature numbers
+        n, p = size_y
+
+        # create Z - obs matrix
+        self.obs_mtx = check_obs_mtx(1., 1, n, m).astype("float32")
+
+        # create T - state matrix
+        self.state_mtx = check_state_mtx(self.rho_state, m, n).astype("float32")
+
+        # create R - noise state matrix
+        self.state_mtx_noise = check_state_noise(self.state_mtx_noise, m, n).astype("float32")
+
+        self.prior_mean = check_prior_mean(self.mu_state, m).astype("float32")
+        self.prior_cov = check_prior_cov(self.state_mtx_noise**2/(1 - self.rho_state**2),
+                                         m).astype("float32")
+
+        self.input_obs = check_input_obs(0, p, n).astype("float32")
+        self.input_state = check_input_state(self.mu_state*(1-self.rho_state), m, n).astype("float32")
+
+        self.obs_mtx_noise = check_obs_mtx_noise(self.obs_mtx_noise, p, n).astype("float32")
+
+        self.model_type = "linear_gaussian"
 
     def ar1_ng(self):
         self.model_type = "non_gaussian"
 
-
-
-    # For R usage
-
     def model_type_case(self):
+        """Return model type integer For R usage
+        Returns:
+            model type (int)
+        """
         if self.model_type == "linear_gaussian":
             return ["ssm_mlg", "ssm_ulg", "bsm_lg", "ar1_lg"].index(self.model_name)
         else:
@@ -233,16 +272,18 @@ class SSModel:
 
         """
 
-    def _toRssmulg(self, prior_fn, update_fn):
+    def _toRssmulg(self, **kwargs):
         """Transfer to R object (S3)
         Args:
             prior_fn: prior function, R object
             update_fn: update function, R object
+            xreg: x regression
+            beta: A matrix containing covariates with number of rows matching the
+             length of y.
 
         Returns:
             r_obj: ssm_model for R
         """
-        # the prior function and update function, use the original version.
 
         """
         Some translation from TFP to R:
@@ -253,6 +294,10 @@ class SSModel:
         obs_noise: observation_size, observation_size -> H  univaraite: 1 or n, multivaraite: p x px n
         state_noise: latent_size, latent_size -> R no problem
         """
+        r_model = {}
+        for key, value in kwargs.items():
+            r_model[key] = value
+
         model_dict = self.__dict__
         if "obs_mtx" in model_dict: model_dict["Z"] = model_dict.pop("obs_mtx")
         if "state_mtx" in model_dict: model_dict["T"] = model_dict.pop("state_mtx")
@@ -275,12 +320,15 @@ class SSModel:
         model_name = model_dict.pop("model_name")
         model_dict.pop("state_dim")
 
-        if model_name == "ssm_ulg":
+        if model_name in ["ssm_ulg", "ar1_lg"]:
             model_dict["Z"] = model_dict["Z"][0]
             if len(model_dict["H"].shape) == 2:  # obs noise
                 model_dict["H"] = model_dict["H"][0]
             model_dict["xreg"] = np.zeros((0, 0))
             model_dict["beta"] = ro.FloatVector([])
+            if model_name == "ar1_lg":
+                model_dict["xreg"] = r_model["xreg"]
+                model_dict["beta"] = r_model["beta"]
             model_dict["y"] = pd.Series(model_dict["y"].flatten())
             name_order = ["y", "Z", "H", "T", "R", "a1", "P1",
                       "D", "C", "update_fn", "prior_fn", "theta", "xreg", "beta"] # corresponding to R
@@ -295,8 +343,8 @@ class SSModel:
                 model_dict["H"] = model_dict["H"][..., None]
             name_order = ["y", "Z", "H", "T", "R", "a1", "P1",
                       "D", "C", "update_fn", "prior_fn", "theta"] # corresponding to R
-        model_dict["prior_fn"] = prior_fn
-        model_dict["update_fn"] = update_fn
+        model_dict["prior_fn"] = r_model['prior_fn']
+        model_dict["update_fn"] = r_model['update_fn']
 
 
         r_obj = ro.ListVector.from_length(len(model_dict))
