@@ -61,7 +61,7 @@ class TestExtendedKalmanFilter:
         size_y, observation = check_y(observation.astype("float32")) # return time length and feature numbers
         num_timesteps, observation_size = size_y
 
-        model_obj = NonlinearSSM.create_dist(num_timesteps=num_timesteps,
+        model_obj = NonlinearSSM.create_model(num_timesteps=num_timesteps,
                                  observation_size=observation_size,
                                  latent_size=1,
                                  initial_state_mean=0.1,
@@ -118,7 +118,7 @@ class TestExtendedKalmanFilter:
         size_y, observation = check_y(observation.astype("float32"))  # return time length and feature numbers
         num_timesteps, observation_size = size_y
 
-        model_obj = NonlinearSSM.create_dist(num_timesteps=num_timesteps,
+        model_obj = NonlinearSSM.create_model(num_timesteps=num_timesteps,
                                              observation_size=observation_size,
                                              latent_size=1,
                                              initial_state_mean=0,

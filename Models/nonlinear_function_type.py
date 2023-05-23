@@ -42,11 +42,12 @@ def nonlinear_fucntion(function_type,
           x_t = mu_state*(1-rho_state) + rho_state*x_-1 + N(0, state_noise^2)
           y_t = exp(x_t) + N(0, 0.01)
     Returns:
-        List of: [observation_fn_fn, transition_fn_fn,
+        List of: [observation_fn, transition_fn,
                 observation_fn_grad, transition_fn_grad,
                 transition_noise_fn, observation_noise_fn, initial_state_prior]
-            observation_fn_fn: [observation_size, latent_size]
-            transition_fn_fn: [latent_size, latent_size]
+            observation_fn: [observation_size, latent_size]
+            observation_eq: [observation_size, latent_size]
+            transition_fn: [latent_size, latent_size]
             observation_fn_grad: [observation_size, latent_size]
             transition_fn_grad: [latent_size, latent_size]
             transition_noise_fn: [latent_size]
@@ -58,19 +59,21 @@ def nonlinear_fucntion(function_type,
     try:
         if function_type == "nlg_sin_exp":
 
-            observation_fn = lambda x: tfd.MultivariateNormalLinearOperator(
-                        loc=tf.exp(x[..., 0])*tf.ones([obs_dim], dtype=dtype),
+            observation_fn = lambda x: tf.exp(x[..., 0])*tf.ones([obs_dim], dtype=dtype)
+            observation_plusnoise_fn = lambda x: tfd.MultivariateNormalLinearOperator(
+                        loc=observation_fn(x),
                     scale=tf.linalg.LinearOperatorFullMatrix(tf.cast(
                         check_obs_mtx_noise(obs_noise, obs_dim, obs_len), dtype=dtype)))
-            transition_fn = lambda x: tfd.MultivariateNormalLinearOperator(
-                        loc=tf.sin(x[..., 0])*tf.ones([state_dim], dtype=dtype),
+
+            transition_fn = lambda x: tf.sin(x[..., 0])*tf.ones([state_dim], dtype=dtype)
+            transition_plusnoise_fn = lambda x: tfd.MultivariateNormalLinearOperator(
+                        loc=transition_fn(x),
                     scale=tf.linalg.LinearOperatorFullMatrix(tf.cast(
                         check_state_noise(state_noise, state_dim, obs_len), dtype=dtype)))
+
             observation_fn_grad = lambda x: tf.reshape(tf.exp(x[..., 0]), [state_dim, state_dim])
             transition_fn_grad = lambda x: tf.reshape(tf.cos(x[..., 0]), [obs_dim, state_dim])
 
-            # The transition_noise_fn and observation_noise_fn are contained in the obs_fn
-            # and state_fn for using extended Kalman filter. So only for definition for future usage
             if not input_obs:
                 input_obs = check_input_obs(0., obs_dim, obs_len)
             if not input_state:
@@ -81,8 +84,8 @@ def nonlinear_fucntion(function_type,
                         check_state_noise(state_noise, state_dim, obs_len), dtype=dtype)))
             observation_noise_fn = lambda x: tfd.MultivariateNormalLinearOperator(
                              loc=tf.convert_to_tensor(input_obs, dtype=dtype),
-                            scale= tf.linalg.LinearOperatorFullMatrix(
-                                check_obs_mtx_noise(obs_noise, obs_dim, obs_len), dtype=dtype
+                            scale= tf.linalg.LinearOperatorFullMatrix(tf.cast(
+                                check_obs_mtx_noise(obs_noise, obs_dim, obs_len), dtype=dtype)
                             ))
 
             prior_mean = tf.convert_to_tensor(check_prior_mean(prior_mean, state_dim), dtype=dtype)
@@ -95,9 +98,10 @@ def nonlinear_fucntion(function_type,
                                         tf.linalg.LinearOperatorLowerTriangular(tf.linalg.cholesky(prior_cov)))
 
             return {"observation_fn":observation_fn, "transition_fn":transition_fn,
+                    "observation_plusnoise_fn": observation_plusnoise_fn, "transition_plusnoise_fn": transition_plusnoise_fn,
                "observation_fn_grad":observation_fn_grad, "transition_fn_grad":transition_fn_grad,
                "transition_noise_fn":transition_noise_fn, "observation_noise_fn":observation_noise_fn,
-                    "initial_state_prior":initial_state_prior, "num_timesteps":obs_len}
+                    "initial_state_prior":initial_state_prior, "num_timesteps":obs_len, "state_dim": state_dim}
 
         elif function_type == "nlg_ar_exp":
             if not rho_state or not mu_state:
@@ -105,14 +109,18 @@ def nonlinear_fucntion(function_type,
             rho_state = check_rho(rho_state)
             mu_state = check_mu(mu_state)
 
-            observation_fn = lambda x: tfd.MultivariateNormalLinearOperator(
-                        loc=tf.exp(x[..., 0])*tf.ones([obs_dim], dtype=dtype),
+            observation_fn = lambda x: tf.exp(x[..., 0])*tf.ones([obs_dim], dtype=dtype)
+            observation_plusnoise_fn = lambda x: tfd.MultivariateNormalLinearOperator(
+                        loc=observation_fn(x),
                     scale=tf.linalg.LinearOperatorFullMatrix(tf.cast(
                         check_obs_mtx_noise(obs_noise, obs_dim, obs_len), dtype=dtype)))
-            transition_fn = lambda x: tfd.MultivariateNormalLinearOperator(
-                        loc=(mu_state*(1 -rho_state) + rho_state*x[..., 0])*tf.ones([state_dim], dtype=dtype),
+
+            transition_fn = lambda x: (mu_state*(1 -rho_state) + rho_state*x[..., 0])*tf.ones([state_dim], dtype=dtype)
+            transition_plusnoise_fn = lambda x: tfd.MultivariateNormalLinearOperator(
+                        loc=transition_fn(x),
                     scale=tf.linalg.LinearOperatorFullMatrix(tf.cast(
                         check_state_noise(state_noise, state_dim, obs_len), dtype=dtype)))
+
             observation_fn_grad = lambda x: tf.reshape(tf.exp(x[..., 0]), [state_dim, state_dim])
             transition_fn_grad = lambda x: tf.reshape(tf.cast(rho_state, dtype=dtype), [obs_dim, state_dim])
 
@@ -124,12 +132,12 @@ def nonlinear_fucntion(function_type,
                 input_state = check_input_state(0, state_dim, obs_len)
             transition_noise_fn = lambda x: tfd.MultivariateNormalLinearOperator(
                         loc=tf.convert_to_tensor(input_state, dtype=dtype),
-                    scale=tf.linalg.LinearOperatorFullMatrix(
-                        check_state_noise(state_noise, state_dim, obs_len), dtype=dtype))
+                    scale=tf.linalg.LinearOperatorFullMatrix(tf.cast(
+                        check_state_noise(state_noise, state_dim, obs_len), dtype=dtype)))
             observation_noise_fn = lambda x: tfd.MultivariateNormalLinearOperator(
-                             loc=tf.convert_to_tensor(input_obs),
-                            scale= tf.linalg.LinearOperatorFullMatrix(
-                                check_obs_mtx_noise(obs_noise, obs_dim, obs_len), dtype=dtype
+                             loc=tf.convert_to_tensor(input_obs, dtype=dtype),
+                            scale= tf.linalg.LinearOperatorFullMatrix(tf.cast(
+                                check_obs_mtx_noise(obs_noise, obs_dim, obs_len), dtype=dtype)
                             ))
 
             prior_mean = tf.convert_to_tensor(check_prior_mean(mu_state, state_dim), dtype=dtype)
@@ -141,9 +149,10 @@ def nonlinear_fucntion(function_type,
                                         tf.linalg.LinearOperatorLowerTriangular(tf.linalg.cholesky(prior_cov)))
 
             return {"observation_fn":observation_fn, "transition_fn":transition_fn,
+                    "observation_plusnoise_fn": observation_plusnoise_fn, "transition_plusnoise_fn": transition_plusnoise_fn,
                "observation_fn_grad":observation_fn_grad, "transition_fn_grad":transition_fn_grad,
                "transition_noise_fn":transition_noise_fn, "observation_noise_fn":observation_noise_fn,
-                    "initial_state_prior":initial_state_prior, "num_timesteps":obs_len}
+                    "initial_state_prior":initial_state_prior, "num_timesteps":obs_len, "state_dim": state_dim}
 
     except:
         raise AttributeError("No nonlinear function is found! Please define a specific one.")
