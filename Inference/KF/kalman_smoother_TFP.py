@@ -5,9 +5,9 @@ import collections
 from runtime_wrap import get_runtime
 
 
-class KalmanFilter:
+class KalmanSmoother:
     """
-    Implement the Kalman filter via Tensorflow Probability official model
+    Implement the Kalman Smoother via Tensorflow Probability official model
 
     ssm_ulg & ssm_mlg: tfd.LinearGaussianStateSpaceModel
     bsm_lg: tfp.sts.LocalLevelStateSpaceModel
@@ -18,13 +18,14 @@ class KalmanFilter:
         for key, value in kwargs.items():
             setattr(self, key, value)
 
-        def_kfmethod = getattr(self, f"kf_{kwargs['model_type']}")
+        def_kfmethod = getattr(self, f"ksmoother_{kwargs['model_type']}")
 
         self.infer_result = def_kfmethod(model=kwargs['model'])
 
+
     @tf.function
-    def kf_linear_gaussian(self, model):
-        """Kalman Filter for Linear Gaussian case, including ssm_ulg & ssm_mlg & ar1_lg
+    def ksmoother_linear_gaussian(self, model):
+        """Kalman Smoother for Linear Gaussian case, including ssm_ulg & ssm_mlg & ar1_lg
         Args:
             model: bssm model object
             The input and output control variables are combined in the noise process.
@@ -92,12 +93,11 @@ class KalmanFilter:
                                         tf.linalg.LinearOperatorLowerTriangular(tf.linalg.cholesky(model.prior_cov)))
         )
 
-
-        infer_result = lg_model.forward_filter(tf.convert_to_tensor(observation))
+        infer_result = lg_model.posterior_marginals(tf.convert_to_tensor(observation))
         # infer_result = self.run_kf(lg_model, tf.convert_to_tensor(observation))
         return infer_result
 
-
+    #
     # """Only for runtime testing
     # """
     # @staticmethod

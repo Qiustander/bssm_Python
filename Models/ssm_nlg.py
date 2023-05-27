@@ -148,7 +148,8 @@ class NonlinearSSM(object):
                 mu_state=None,
                 input_state=None,
                 input_obs=None,
-                dtype=tf.float32):
+                dtype=tf.float32,
+                 **kwargs):
         return cls(**nonlinear_fucntion(
                     function_type=nonlinear_type,
                     obs_len=num_timesteps,
@@ -162,8 +163,23 @@ class NonlinearSSM(object):
                     input_obs=input_obs,
                     rho_state=rho_state,
                     mu_state=mu_state,
-                    dtype=dtype
-                            ))
+                    dtype=dtype,
+                            **kwargs))
+
+    def gaussian_approx(self, max_iter=100, tol=1e-8):
+        """ Returns the approximate linear-Gaussian model which has the same conditional
+             mode of p(x|y, \theta) as the original model.
+        Args:
+            max_iter: Maximum number of iterations as a positive integer.
+                Default is 100 (although typically only few iterations are needed).
+            tol: Positive tolerance parameter. Default is 1e-8. Approximation
+                is claimed to be converged when the mean squared difference of the modes of
+                is less than this number.
+        Returns:
+
+        """
+        pass
+
 
     #TODO: rewrite the EKF -> IEKF
     @tf.function
@@ -229,8 +245,8 @@ class NonlinearSSM(object):
             estimated_y = tf.squeeze(tf.transpose(sigma_y) @ sigma_weight_mean, axis=-1)
 
             current_variance = self._weight_covariance(sigma_y, weights_mean=sigma_weight_mean,
-                                                weights_cov=sigma_weight_cov) + self.observation_noise_fn(0.).stddev()
-            current_covariance = self._weight_covariance(sigma_y, tf.stack(sigma_points_x) - predict_state,
+                                                weights_cov=sigma_weight_cov) + self.observation_noise_fn.covariance()
+            current_covariance = self._weight_covariance(sigma_y, sigma_points_x - predict_state,
                                                   weights_mean=sigma_weight_mean,
                                                 weights_cov=sigma_weight_cov,
                                                   need_mean=False)
@@ -242,14 +258,15 @@ class NonlinearSSM(object):
                 kalman_gain = current_covariance / current_variance
                 filtered_state = predict_state + tf.squeeze(kalman_gain, axis=-1)* gamma_t
             else:
-                kalman_gain = tf.transpose(
-                    current_variance.solvevec(current_covariance, adjoint=True))
-                filtered_state = predict_state + kalman_gain @ gamma_t
+                kalman_gain = tf.transpose(tf.linalg.solve(
+                                current_variance, current_covariance, adjoint=True
+                            ))
+                filtered_state = predict_state + kalman_gain._matmul(gamma_t)
             filtered_cov = predict_cov - kalman_gain @ current_variance @ tf.transpose(kalman_gain)
 
             ############## prediction for next state mu_t+1|t
             chol_next_state = tf.linalg.cholesky(filtered_cov)
-            sigma_points_pred = tf.vectorized_map( lambda x:
+            sigma_points_pred = tf.vectorized_map(lambda x:
                         self._sigma_samples(filtered_state, chol_next_state,
                                                        tf.sqrt(lamda + float(self.state_dim)), x), indices)
 
@@ -257,7 +274,7 @@ class NonlinearSSM(object):
                                         self.transition_fn(x), tf.stack(sigma_points_pred))
             predict_state = tf.squeeze(tf.transpose(sigma_x_pred) @ sigma_weight_mean, -1) # s
             predict_cov = self._weight_covariance(sigma_x_pred, weights_mean=sigma_weight_mean,
-                                                weights_cov=sigma_weight_cov) + self.transition_noise_fn(0.).covariance()
+                                                weights_cov=sigma_weight_cov) + self.transition_noise_fn.covariance()
 
             return (filtered_state, filtered_cov, predict_state, predict_cov)
 

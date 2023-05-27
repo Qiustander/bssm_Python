@@ -82,6 +82,8 @@ def check_sd(x, type, add_prefix=True):
 
 
 def check_mu(x):
+    if isinstance(x, np.ndarray) and len(x) == 1:
+        return x
     if type(x) in [float, int, list]:
         return np.array(x)[None]
     if not x.shape:
@@ -93,6 +95,9 @@ def check_mu(x):
     raise ValueError("No return.")
 
 def check_rho(x):
+        #TODO: unittest to check [x]
+        if isinstance(x, np.ndarray) and len(x) == 1:
+            return x
         if type(x) in [float, int, list]:
             return np.array(x)[None]
         if not x.shape:
@@ -345,7 +350,8 @@ def check_state_mtx(x, m, n):
         if x.shape[0] != m or x.shape[1] != m: flag = 3
         else: return x
     if len(x.shape) == 3:
-        if x.shape[-1] == 1 and m == 1: return np.squeeze(x, axis=-1)
+        # TODO: unittest: for m != 1 should also np.squeeze(x, axis=-1)
+        if x.shape[-1] == 1: return np.squeeze(x, axis=-1)
         if x.shape != (m, m, n): flag = 4
         else: return x
 

@@ -129,7 +129,7 @@ class TestKalmanFilterULG:
 
 class TestKalmanFilterMLG:
     """
-    Test Kalman Filter - ssm_mlg
+    Test Kalman Filter - ssm_mlg, local level model
     """
     # define data
     ro.r("""
@@ -141,6 +141,7 @@ class TestKalmanFilterMLG:
           D = matrix(0, 2, 1), C = matrix(0, 1, 1))
       infer_result <- kfilter(model_r)
     """)
+
     @pytest.mark.parametrize(
         ("y", "obs_mtx", "obs_mtx_noise", "init_theta", "state_mtx", "state_mtx_noise",
          "prior_mean", "prior_cov", "input_state", "input_obs", "r_result"),
@@ -149,26 +150,72 @@ class TestKalmanFilterMLG:
           np.array(ro.r("model_r$P1")), np.array(ro.r("model_r$C")), np.array(ro.r("model_r$D")),
           ro.r["infer_result"]
           )])
-    def test_kffilter_R(self, y, obs_mtx, obs_mtx_noise, init_theta, state_mtx,
+    def test_kffilter_TFP(self, y, obs_mtx, obs_mtx_noise, init_theta, state_mtx,
                        state_mtx_noise, prior_mean, prior_cov, input_state, input_obs, r_result):
-        # define ssm
         r_result = r_result
-        model_obj = SSModel(model_name="ssm_mlg", y=y, state_dim=state_mtx.shape[0],
+
+        model_obj = SSModel(model_name="ssm_ulg", y=y, state_dim=state_mtx.shape[0],
                             obs_mtx=obs_mtx, obs_mtx_noise=obs_mtx_noise,
                             init_theta=init_theta,
-                            state_mtx=state_mtx, state_mtx_noise=state_mtx_noise,
+                            state_mtx=state_mtx, state_mtx_noise=state_mtx_noise.squeeze(),
                             prior_mean=prior_mean, prior_cov=prior_cov,
                           input_state=input_state, input_obs=input_obs,
-                            )
-        model_type_case = model_obj.model_type_case()
-        model_obj = model_obj._toRssmulg(prior_fn=ro.r("""prior_fn = function(theta) {0}"""),
-                                         update_fn=ro.r("""update_fn = function(theta) {0}"""))
-        infer_result = KFR(model_type="linear_gaussian",
-                                    model=model_obj, model_type_case=model_type_case).infer_result
+                         )
+        infer_result = KFTFP(model_type="linear_gaussian", model=model_obj).infer_result
+        # compare loglik
+        tf.debugging.assert_near(r_result[-1], infer_result.log_likelihoods.numpy().sum(), atol=1e-2)
+        # compare filtered_means
+        tf.debugging.assert_near(r_result[1], infer_result.filtered_means.numpy(), atol=1e-2)
+        # compare filtered_covs
+        tf.debugging.assert_near(r_result[3], infer_result.filtered_covs.numpy().transpose(1, 2, 0), atol=1e-2)
+        # compare predicted_means
+        tf.debugging.assert_near(r_result[0][1:, ...], infer_result.predicted_means.numpy(), atol=1e-2)
+        # compare predicted_covs
+        tf.debugging.assert_near(r_result[2][..., 1:], infer_result.predicted_covs.numpy().transpose(1, 2, 0), atol=1e-2)
 
-        for i in range(len(infer_result)):
-            g = base.all_equal(r_result[i], infer_result[i], tolerance=1e-6)
-            assert g[0] == True
+
+class TestKalmanFilterMLG2:
+    """
+    Test Kalman Filter - ssm_mlg, 3-dim tracking model
+    """
+    # define data
+    ro.r("""
+        a1 <- rep(0, 6)
+        P1 <- rep (10, 6)
+        n <- 200
+        sd_x <- c(0.1,0.1,0.02)
+        sd_y <- c(1,1,1)
+        T <- c(1,0,0,1,0,0,
+               0,1,0,0,1,0,
+               0,0,1,0,0,1,
+               0,0,0,1,0,0,
+               0,0,0,0,1,0,
+               0,0,0,0,0,1)
+        T <- matrix(T,ncol=6,nrow=6,byrow=T)
+        Z <- c(1,0,0,0,0,0,
+               0,1,0,0,0,0,
+               0,0,1,0,0,0)
+        Z <- matrix(Z,ncol=6,nrow=3, byrow=T)
+        R <- c(0.5*sd_x[1], 0, 0,
+               0, 0.5*sd_x[2], 0,
+               0, 0, 0.5*sd_x[3],
+               sd_x[1], 0, 0,
+               0, sd_x[2], 0,
+               0, 0, sd_x[3])
+        R <- matrix(R,ncol=3,nrow=6,byrow=T)
+        H <- diag(sd_y)
+        x <- matrix(0, nrow=n, ncol=6) # state
+        y <- matrix(0, nrow=n, ncol=3) # observation
+        x[1, ] <- rnorm(6, a1, P1)
+        y[1, ] <- rnorm(3, Z%*%x[1, ], sd_y)
+        for(i in 2:n) {
+            x[i, ] <- T%*% x[i-1, ]+ R%*%rnorm(3, 0, 1)
+            y[i, ] <- rnorm(3, Z%*%x[i, ], sd_y)
+        }
+        model_r <- ssm_mlg(y, H = H,
+                           R = R, Z = Z, T = T, P1 = diag(P1))
+      infer_result <- kfilter(model_r)
+    """)
 
     @pytest.mark.parametrize(
         ("y", "obs_mtx", "obs_mtx_noise", "init_theta", "state_mtx", "state_mtx_noise",
