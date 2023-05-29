@@ -120,17 +120,6 @@ def process_tv(model, attritube):
     return matrix_tv
 
 
-# TODO: how to find out whether noise or input is time-varying
-#TODO: for debugging stage here,  wrap in the future
-
-# def noise_constructor(model):
-#
-#     return tfd.MultivariateNormalLinearOperator(
-#                          loc=tf.convert_to_tensor(model.input_state.flatten()),
-#                         scale=tf.convert_to_tensor(model.state_mtx_noise) if len(model.state_mtx_noise.shape) == 1
-#                                 else tf.linalg.LinearOperatorFullMatrix(model.state_mtx_noise))
-
-
 
 
 

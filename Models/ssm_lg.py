@@ -5,9 +5,10 @@ tfd = tfp.distributions
 from tensorflow_probability.python.internal import prefer_static as ps
 from runtime_wrap import get_runtime
 import numpy as np
+from .check_argument import *
 
 
-class NonlinearSSM(tfd.LinearGaussianStateSpaceModel):
+class LinearGaussianSSM(tfd.LinearGaussianStateSpaceModel):
     """Build a linear Gaussian state space model
     Args:
       num_timesteps: Integer Tensor total number of timesteps.
@@ -36,102 +37,46 @@ class NonlinearSSM(tfd.LinearGaussianStateSpaceModel):
     def __init__(self,
                  num_timesteps,
                  state_dim,
-                 observation_fn,
-                 observation_plusnoise_fn,
-                 transition_fn,
-                 transition_plusnoise_fn,
-                 observation_fn_grad,
-                 transition_fn_grad,
-                 transition_noise_fn,
-                 observation_noise_fn,
+                 observation_matrix,
+                 transition_matrix,
+                 observation_noise,
+                 transition_noise,
                  initial_state_prior,
                  initial_step=0,
                  mask=None,
                  experimental_parallelize=False,
                  validate_args=False,
                  allow_nan_stats=True,
-                 name='NonlinearSSM'):
+                 dtype=tf.float32,
+                 name='NonlinearSSM',
+                 **linear_gaussian_ssm_kwargs):
 
         parameters = dict(locals())
-        with tf.name_scope(name or 'NonlinearSSM') as name:
+        parameters.update(linear_gaussian_ssm_kwargs)
+        with tf.name_scope(name or 'LinearGaussianSSM') as name:
 
-            self._num_timesteps = ps.convert_to_shape_tensor(
-                num_timesteps, name='num_timesteps')
+            self._dtype = dtype
             self._state_dim = ps.convert_to_shape_tensor(
                 state_dim, name='state_dim')
-            self._initial_state_prior = initial_state_prior
-            self._initial_step = ps.convert_to_shape_tensor(
-                initial_step, name='initial_step')
 
-            self._observation_fn_grad = observation_fn_grad
-            self._transition_fn_grad = transition_fn_grad
-            self._observation_fn = observation_fn
-            self._observation_plusnoise_fn = observation_plusnoise_fn
-            self._transition_fn = transition_fn
-            self._transition_plusnoise_fn = transition_plusnoise_fn
-            self._transition_noise_fn = transition_noise_fn
-            self._observation_noise_fn = observation_noise_fn
-
-            dtype_list = [initial_state_prior,
-                          observation_fn,
-                          transition_fn,
-                          transition_plusnoise_fn,
-                          observation_plusnoise_fn,
-                          transition_noise_fn,
-                          observation_noise_fn,
-                          observation_fn_grad,
-                          transition_fn_grad]
-
-            # Infer dtype from time invariant objects. This list will be non-empty
-            # since it will always include `initial_state_prior`.
-            dtype = dtype_util.common_dtype(
-                list(filter(lambda x: not callable(x), dtype_list)),
-                dtype_hint=tf.float32)
-
-    @property
-    def observation_fn_grad(self):
-        return self._observation_fn_grad
-
-    @property
-    def transition_fn_grad(self):
-        return self._transition_fn_grad
-
-    @property
-    def num_timesteps(self):
-        return self._num_timesteps
+            super(LinearGaussianSSM, self).__init__(
+                num_timesteps=num_timesteps,
+                transition_matrix=transition_matrix,
+                transition_noise=transition_noise,
+                observation_matrix=observation_matrix,
+                observation_noise=observation_noise,
+                initial_state_prior=initial_state_prior,
+                name=name,
+                **linear_gaussian_ssm_kwargs)
+            self._parameters = parameters
 
     @property
     def state_dim(self):
         return self._state_dim
 
     @property
-    def transition_fn(self):
-        return self._transition_fn
-
-    @property
-    def transition_noise_fn(self):
-        return self._transition_noise_fn
-
-    @property
-    def observation_fn(self):
-        return self._observation_fn
-
-    @property
-    def observation_plusnoise_fn(self):
-        return self._observation_plusnoise_fn
-
-    @property
-    def transition_plusnoise_fn(self):
-        return self._transition_plusnoise_fn
-
-    @property
-    def observation_noise_fn(self):
-        return self._observation_noise_fn
-
-    @property
-    def initial_state_prior(self):
-        return self._initial_state_prior
-
+    def dtype(self):
+        return self._dtype
 
     @classmethod
     def create_model(cls,
@@ -139,56 +84,115 @@ class NonlinearSSM(tfd.LinearGaussianStateSpaceModel):
                  observation_size,
                  latent_size,
                  initial_state_mean,
+                 state_mtx,
+                 obs_mtx,
                  initial_state_cov,
                  state_noise_std,
                  obs_noise_std,
-                 nonlinear_type,
-                rho_state=None,
-                mu_state=None,
                 input_state=None,
                 input_obs=None,
-                dtype=tf.float32):
-        return cls(**nonlinear_fucntion(
-                    function_type=nonlinear_type,
+                dtype=tf.float32,
+                     **kwargs):
+        return cls(**_check_parameters(
                     obs_len=num_timesteps,
                     obs_dim=observation_size,
                     state_dim=latent_size,
                     obs_noise=obs_noise_std,
                     state_noise=state_noise_std,
+                    state_mtx=state_mtx,
+                    obs_mtx=obs_mtx,
                     prior_mean=initial_state_mean,
                     prior_cov=initial_state_cov,
                     input_state=input_state,
                     input_obs=input_obs,
-                    rho_state=rho_state,
-                    mu_state=mu_state,
-                    dtype=dtype
-                            ))
+                    dtype=dtype,
+                     **kwargs))
 
 def _check_parameters(obs_len,
                        state_dim,
                        obs_dim,
+                       obs_mtx,
+                       state_mtx,
                        state_noise,
                        obs_noise,
                        prior_mean,
                        prior_cov,
                        input_state,
                        input_obs,
-                       rho_state,
-                       mu_state,
                        dtype,
-                       **kwargs):
+                        **kwargs):
 
-def _process_tv(model, attritube):
+    # create Z - obs matrix
+    obs_mtx = tf.convert_to_tensor(check_obs_mtx(obs_mtx, obs_dim, obs_len, state_dim), dtype=dtype)
+    observation_matrix = obs_mtx \
+                    if len(obs_mtx.shape) == 2 else _process_mtx_tv(obs_mtx, dtype)
+
+    # create T - state matrix
+    state_mtx = tf.convert_to_tensor(check_state_mtx(state_mtx, state_dim, obs_len), dtype=dtype)
+    transition_matrix = state_mtx\
+                    if len(state_mtx.shape) == 2 else _process_mtx_tv(state_mtx, dtype)
+
+    # create R - noise state matrix
+    state_mtx_noise = tf.convert_to_tensor(check_state_noise(state_noise, state_dim, obs_len), dtype=dtype)
+    input_state = tf.convert_to_tensor(check_input_state(input_state, state_dim, obs_len), dtype=dtype)
+    time_vary_state_noise = False
+    if input_state.shape[-1] == obs_len or state_mtx_noise.shape[-1] == obs_len:
+        input_state = tf.repeat(input_state[..., None], obs_len, axis=-1) \
+                if input_state.shape[-1] == obs_len else input_state
+        state_mtx_noise = tf.repeat(state_mtx_noise[..., None], obs_len, axis=-1) \
+                if state_mtx_noise.shape[-1] == obs_len else state_mtx_noise
+        time_vary_state_noise = True
+
+    # create H - noise obs matrix
+    time_vary_obs_noise = False
+    obs_mtx_noise = tf.convert_to_tensor(check_obs_mtx_noise(obs_noise, obs_dim, obs_len), dtype=dtype)
+    input_obs = tf.convert_to_tensor(check_input_obs(input_obs, obs_dim, obs_len), dtype=dtype)
+    if input_obs.shape[-1] == obs_len or obs_mtx_noise.shape[-1] == obs_len:
+        input_obs = tf.repeat(input_obs[..., None], obs_len, axis=-1) \
+                if input_obs.shape[-1] == obs_len else input_obs
+        obs_mtx_noise = tf.repeat(obs_mtx_noise[..., None], obs_len, axis=-1) \
+                if obs_mtx_noise.shape[-1] == obs_len else obs_mtx_noise
+        time_vary_obs_noise = True
+
+    observation_noise = tfd.MultivariateNormalLinearOperator(
+                                 loc=input_obs,
+                            scale=tf.linalg.LinearOperatorFullMatrix(obs_mtx_noise)) \
+                if not time_vary_obs_noise else\
+        lambda x: tfd.MultivariateNormalLinearOperator(
+                                 loc=input_obs[..., x],
+                            scale=tf.linalg.LinearOperatorFullMatrix(obs_mtx_noise[..., x:x+1]))
+    transition_noise = tfd.MultivariateNormalLinearOperator(
+                                 loc=input_state,
+                            scale=tf.linalg.LinearOperatorFullMatrix(state_mtx_noise)) \
+                if not time_vary_state_noise else\
+        lambda x: tfd.MultivariateNormalLinearOperator(
+                                 loc=input_state[..., x],
+                            scale=tf.linalg.LinearOperatorFullMatrix(state_mtx_noise[..., x:x+1]))
+
+    prior_mean = tf.convert_to_tensor(check_prior_mean(prior_mean, state_dim), dtype=dtype)
+    prior_cov = tf.convert_to_tensor(check_prior_cov(prior_cov, state_dim), dtype=dtype)
+
+    initial_state_prior = tfd.MultivariateNormalLinearOperator(
+        loc=prior_mean,
+        scale=prior_cov if len(prior_cov.shape) == 1 else
+        tf.linalg.LinearOperatorLowerTriangular(tf.linalg.cholesky(prior_cov)))
+
+    return {"observation_matrix":observation_matrix, "transition_matrix":transition_matrix,
+               "transition_noise":transition_noise, "observation_noise":observation_noise,
+                    "initial_state_prior":initial_state_prior, "num_timesteps":obs_len, "state_dim": state_dim}
+
+
+def _process_mtx_tv(time_vary_mtx, dtype=tf.float32):
     """
     Args:
-        model: model object for time-varying process
-        attritbue (str): matrix name of the model object: state_mtx/obs_mtx/state_mtx_noise/obs_mtx_noise
+        time_vary_mtx: matrix name of the model object: state_mtx/obs_mtx/state_mtx_noise/obs_mtx_noise
+        dtype: data type of the matrix
     Returns:
         matrix_tv: callable function that for t-th time point with wrapped matrix
     """
 
     def matrix_tv(t):
-        return tf.linalg.LinearOperatorFullMatrix(tf.gather(tf.convert_to_tensor(getattr(model, attritube))
+        return tf.linalg.LinearOperatorFullMatrix(tf.gather(tf.convert_to_tensor(time_vary_mtx, dtype=dtype)
                                                             , indices=t, axis=-1))
 
     return matrix_tv

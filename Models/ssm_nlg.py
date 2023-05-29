@@ -371,7 +371,7 @@ class NonlinearSSM(object):
 
                 # new_particles = X + damping * added_term
                 new_particles = tf.nest.map_structure(
-                    lambda x, a: x + dampling * a, correct_samples, added_term)
+                    lambda x, a: x + dampling * a, state_prior_samples, added_term)
 
             return new_particles
 

@@ -137,8 +137,9 @@ def check_input_obs(x, p, n):
 
     """
     #TODO unit test for p <1
+    # TODO unittest raise error when input is float
     if x is None:
-        x = np.zeros([0.]) if p == 1 else np.zeros([p,])
+        x = np.zeros([p,])
     else:
         if type(x) in [float, int, list]:
             x = np.array(x)

@@ -22,7 +22,7 @@ class KalmanFilter:
 
         self.infer_result = def_kfmethod(model=kwargs['model'])
 
-    @tf.function
+    # @tf.function
     def kf_linear_gaussian(self, model):
         """Kalman Filter for Linear Gaussian case, including ssm_ulg & ssm_mlg & ar1_lg
         Args:
@@ -39,7 +39,8 @@ class KalmanFilter:
                             sample_shape(x) + batch_shape + [num_timesteps, latent_size].
             filtered_covs:	Covariances of the per-timestep filtered marginal
                             distributions p(z[t] | x[:t]), as a Tensor of shape sample_shape(x)
-                             + batch_shape + [num_timesteps, latent_size,latent_size].
+                             + batch_shape +
+                             [num_timesteps, latent_size,latent_size].
                              Since posterior covariances do not depend on observed data,
                              some implementations may return a Tensor whose shape omits
                              the initial sample_shape(x).
