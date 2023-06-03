@@ -166,22 +166,6 @@ class NonlinearSSM(object):
                     dtype=dtype,
                             **kwargs))
 
-    def gaussian_approx(self, max_iter=100, tol=1e-8):
-        """ Returns the approximate linear-Gaussian model which has the same conditional
-             mode of p(x|y, \theta) as the original model.
-        Args:
-            max_iter: Maximum number of iterations as a positive integer.
-                Default is 100 (although typically only few iterations are needed).
-            tol: Positive tolerance parameter. Default is 1e-8. Approximation
-                is claimed to be converged when the mean squared difference of the modes of
-                is less than this number.
-        Returns:
-
-        """
-        pass
-
-
-    #TODO: rewrite the EKF -> IEKF
     @tf.function
     def extended_Kalman_filter(self, observations):
         """ Conduct the extended Kalman Filter
@@ -278,8 +262,8 @@ class NonlinearSSM(object):
 
             return (filtered_state, filtered_cov, predict_state, predict_cov)
 
-        filter_result = tf.scan(ukf_one_step, observations,
-                                (dum_mean, dum_cov, prior_mean, prior_cov))
+        filter_result = tf.scan(ukf_one_step, elems=observations,
+                            initializer=(dum_mean, dum_cov, prior_mean, prior_cov))
 
         return filter_result
 
@@ -375,7 +359,7 @@ class NonlinearSSM(object):
 
             return new_particles
 
-        filter_result = tf.scan(enkf_one_step, observations, prior_samples)
+        filter_result = tf.scan(enkf_one_step, elems=observations, initializer=prior_samples)
 
         return tf.reduce_mean(filter_result, axis=1), tfp.stats.covariance(
                             filter_result, sample_axis=1, event_axis=-1, keepdims=False)

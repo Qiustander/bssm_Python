@@ -4,7 +4,7 @@ import rpy2.robjects as ro
 from rpy2.robjects import numpy2ri
 from rpy2.robjects.packages import importr
 from Models.bssm_model import *
-from Inference.KF.kalman_TFP import KalmanFilter as KFTFP
+from Inference.Kalman.kalman_filter import KalmanFilter as KFTFP
 from Models.ssm_lg import LinearGaussianSSM
 import os.path as pth
 import os
@@ -75,7 +75,7 @@ class TestKalmanFilterULG:
          np.array(ro.r("R")), np.array(ro.r("a1")), np.array(ro.r("P1")), ro.r("""matrix(0, 3, 1)"""),
          np.array([0.]), ro.r["infer_result"]
           )])
-    def test_kffilter_TFP(self, y, obs_mtx, obs_mtx_noise, init_theta, state_mtx,
+    def test_kffilter_standalone_TFP(self, y, obs_mtx, obs_mtx_noise, init_theta, state_mtx,
                        state_mtx_noise, prior_mean, prior_cov, input_state, input_obs, r_result):
         r_result = r_result
 
@@ -131,6 +131,7 @@ class TestKalmanFilterULG:
         # compare predicted_covs
         tf.debugging.assert_near(r_result[2][..., 1:], infer_result.predicted_covs.numpy().transpose(1, 2, 0), atol=1e-2)
 
+
 class TestKalmanFilterMLG:
     """
     Test Kalman Filter - ssm_mlg, local level model
@@ -154,7 +155,42 @@ class TestKalmanFilterMLG:
           np.array(ro.r("model_r$P1")), np.array(ro.r("model_r$C")), np.array(ro.r("model_r$D")),
           ro.r["infer_result"]
           )])
-    def test_kffilter_TFP(self, y, obs_mtx, obs_mtx_noise, init_theta, state_mtx,
+    def test_kffilter_lg_TFP(self, y, obs_mtx, obs_mtx_noise, init_theta, state_mtx,
+                       state_mtx_noise, prior_mean, prior_cov, input_state, input_obs, r_result):
+        r_result = r_result
+        size_y, observation = check_y(y)
+        num_timesteps, observation_size = size_y
+        model_obj = LinearGaussianSSM.create_model(num_timesteps=num_timesteps,
+                                             observation_size=observation_size,
+                                             latent_size=1,
+                                             initial_state_mean=prior_mean,
+                                             initial_state_cov=prior_cov,
+                                             state_noise_std=state_mtx_noise,
+                                             obs_noise_std=obs_mtx_noise,
+                                             obs_mtx=obs_mtx,
+                                             state_mtx=state_mtx)
+
+        infer_result = model_obj.forward_filter(tf.convert_to_tensor(observation, dtype=model_obj.dtype))
+        # compare loglik
+        tf.debugging.assert_near(r_result[-1], infer_result.log_likelihoods.numpy().sum(), atol=1e-2)
+        # compare filtered_means
+        tf.debugging.assert_near(r_result[1], infer_result.filtered_means.numpy(), atol=1e-2)
+        # compare filtered_covs
+        tf.debugging.assert_near(r_result[3], infer_result.filtered_covs.numpy().transpose(1, 2, 0), atol=1e-2)
+        # compare predicted_means
+        tf.debugging.assert_near(r_result[0][1:, ...], infer_result.predicted_means.numpy(), atol=1e-2)
+        # compare predicted_covs
+        tf.debugging.assert_near(r_result[2][..., 1:], infer_result.predicted_covs.numpy().transpose(1, 2, 0), atol=1e-2)
+
+    @pytest.mark.parametrize(
+        ("y", "obs_mtx", "obs_mtx_noise", "init_theta", "state_mtx", "state_mtx_noise",
+         "prior_mean", "prior_cov", "input_state", "input_obs", "r_result"),
+        [(np.array(ro.r("model_r$y")), np.array(ro.r("model_r$Z")), ro.r("model_r$H"), ro.r("model_r$theta"),
+          np.array(ro.r("model_r$T")), np.array(ro.r("model_r$R")), np.array(ro.r("model_r$a1")),
+          np.array(ro.r("model_r$P1")), np.array(ro.r("model_r$C")), np.array(ro.r("model_r$D")),
+          ro.r["infer_result"]
+          )])
+    def test_kffilter_standalone_TFP(self, y, obs_mtx, obs_mtx_noise, init_theta, state_mtx,
                        state_mtx_noise, prior_mean, prior_cov, input_state, input_obs, r_result):
         r_result = r_result
 
@@ -186,7 +222,7 @@ class TestKalmanFilterMLG2:
     ro.r("""
         a1 <- rep(0, 6)
         P1 <- rep (10, 6)
-        n <- 200
+        n <- 100
         sd_x <- c(0.1,0.1,0.02)
         sd_y <- c(1,1,1)
         T <- c(1,0,0,1,0,0,
@@ -229,7 +265,7 @@ class TestKalmanFilterMLG2:
           np.array(ro.r("model_r$P1")), np.array(ro.r("model_r$C")), np.array(ro.r("model_r$D")),
           ro.r["infer_result"]
           )])
-    def test_kffilter_TFP(self, y, obs_mtx, obs_mtx_noise, init_theta, state_mtx,
+    def test_kffilter_standalone_TFP(self, y, obs_mtx, obs_mtx_noise, init_theta, state_mtx,
                        state_mtx_noise, prior_mean, prior_cov, input_state, input_obs, r_result):
         r_result = r_result
 
@@ -241,6 +277,41 @@ class TestKalmanFilterMLG2:
                           input_state=input_state, input_obs=input_obs,
                          )
         infer_result = KFTFP(model_type="linear_gaussian", model=model_obj).infer_result
+        # compare loglik
+        tf.debugging.assert_near(r_result[-1], infer_result.log_likelihoods.numpy().sum(), atol=1e-2)
+        # compare filtered_means
+        tf.debugging.assert_near(r_result[1], infer_result.filtered_means.numpy(), atol=1e-2)
+        # compare filtered_covs
+        tf.debugging.assert_near(r_result[3], infer_result.filtered_covs.numpy().transpose(1, 2, 0), atol=1e-2)
+        # compare predicted_means
+        tf.debugging.assert_near(r_result[0][1:, ...], infer_result.predicted_means.numpy(), atol=1e-2)
+        # compare predicted_covs
+        tf.debugging.assert_near(r_result[2][..., 1:], infer_result.predicted_covs.numpy().transpose(1, 2, 0), atol=1e-2)
+
+    @pytest.mark.parametrize(
+        ("y", "obs_mtx", "obs_mtx_noise", "init_theta", "state_mtx", "state_mtx_noise",
+         "prior_mean", "prior_cov", "input_state", "input_obs", "r_result"),
+        [(np.array(ro.r("model_r$y")), np.array(ro.r("model_r$Z")), ro.r("model_r$H"), ro.r("model_r$theta"),
+          np.array(ro.r("model_r$T")), np.array(ro.r("model_r$R")), np.array(ro.r("model_r$a1")),
+          np.array(ro.r("model_r$P1")), np.array(ro.r("model_r$C")), np.array(ro.r("model_r$D")),
+          ro.r["infer_result"]
+          )])
+    def test_kffilter_lg_TFP(self, y, obs_mtx, obs_mtx_noise, init_theta, state_mtx,
+                       state_mtx_noise, prior_mean, prior_cov, input_state, input_obs, r_result):
+        r_result = r_result
+        size_y, observation = check_y(y)
+        num_timesteps, observation_size = size_y
+        model_obj = LinearGaussianSSM.create_model(num_timesteps=num_timesteps,
+                                             observation_size=observation_size,
+                                             latent_size=6,
+                                             initial_state_mean=prior_mean,
+                                             initial_state_cov=prior_cov,
+                                             state_noise_std=state_mtx_noise,
+                                             obs_noise_std=obs_mtx_noise,
+                                             obs_mtx=obs_mtx,
+                                             state_mtx=state_mtx)
+
+        infer_result = model_obj.forward_filter(tf.convert_to_tensor(observation, dtype=model_obj.dtype))
         # compare loglik
         tf.debugging.assert_near(r_result[-1], infer_result.log_likelihoods.numpy().sum(), atol=1e-2)
         # compare filtered_means

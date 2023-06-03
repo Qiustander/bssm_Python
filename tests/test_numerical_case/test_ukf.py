@@ -4,6 +4,7 @@ import rpy2.robjects as ro
 from rpy2.robjects import numpy2ri
 from rpy2.robjects.packages import importr
 from Models.ssm_nlg import NonlinearSSM
+from Inference.Kalman.unscented_kalman_filter import unscented_kalman_filter
 from Models.check_argument import *
 import os.path as pth
 import os
@@ -28,6 +29,7 @@ stat = importr('stats', lib_loc="/usr/lib/R/library")
 Note: bssm package uses fixed values for implementing the UKF: alpha = 1, beta = 0, kappa = 2
 and bssm uses wrong observation noise, the authors use std instead of covariance.
 """
+#TODO: re-compile bssm package
 
 class TestExtendedKalmanFilter:
     """
@@ -77,7 +79,8 @@ class TestExtendedKalmanFilter:
                                  obs_noise_std=0.1,
                                  nonlinear_type="nlg_ar_exp")
 
-        infer_result = model_obj.unscented_Kalman_filter(observation, alpha=1e-2, beta=2., kappa=1.)
+        # infer_result = model_obj.unscented_Kalman_filter(observation, alpha=1e-2, beta=2., kappa=1.)
+        infer_result = unscented_kalman_filter(model_obj, observation, alpha=1e-2, beta=2., kappa=1.)
 
         true_state = np.array(ro.r("x"))[..., None]
         plt.plot(infer_result[0].numpy(), color='blue', linewidth=1)
@@ -129,7 +132,9 @@ class TestExtendedKalmanFilter:
                                              state_noise_std=0.1,
                                              obs_noise_std=0.2,
                                              nonlinear_type="nlg_sin_exp")
-        infer_result = model_obj.unscented_Kalman_filter(observation)
+        # infer_result = model_obj.unscented_Kalman_filter(observation)
+        infer_result = unscented_kalman_filter(model_obj, observation, alpha=1e-2, beta=2., kappa=1.)
+
         # true_state = np.array(ro.r("x"))[..., None]
         # plt.plot(infer_result[0].numpy(), color='blue', linewidth=1)
         # plt.plot(r_result[1], color='green', linewidth=1)
@@ -206,11 +211,11 @@ class TestExtendedKalmanFilter:
                                               dt=0.3,
                                               nonlinear_type="nlg_mv_model")
         infer_result = model_obj.unscented_Kalman_filter(observation)
-        true_state = np.array(ro.r("x"))[..., None]
-        plt.plot(infer_result[0][:,0].numpy(), color='blue', linewidth=1)
-        plt.plot(r_result[1][:,0], color='green', linewidth=1)
-        plt.plot(true_state[:,0], '-.', color='red', linewidth=1)
-        plt.show()
+        # true_state = np.array(ro.r("x"))[..., None]
+        # plt.plot(infer_result[0][:,0].numpy(), color='blue', linewidth=1)
+        # plt.plot(r_result[1][:,0], color='green', linewidth=1)
+        # plt.plot(true_state[:,0], '-.', color='red', linewidth=1)
+        # plt.show()
 
         # compare filtered_means
         tf.debugging.assert_near(r_result[1], infer_result[0].numpy(), atol=1e-3)

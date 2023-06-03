@@ -4,6 +4,7 @@ import rpy2.robjects as ro
 from rpy2.robjects import numpy2ri
 from rpy2.robjects.packages import importr
 from Models.ssm_nlg import NonlinearSSM
+from Inference.Kalman.ensemble_kalman_filter import ensemble_kalman_filter
 from Models.check_argument import *
 import os.path as pth
 import os
@@ -73,11 +74,14 @@ class TestEnsembleKalmanFilter:
                                  nonlinear_type="nlg_ar_exp")
 
         infer_result = model_obj.ensemble_Kalman_filter(observation, num_particles=20)
+        infer_result_standalone = ensemble_kalman_filter(model_obj, observation, num_particles=20)
+
         true_state = np.array(ro.r("x"))[..., None]
         # plt.plot(infer_result[0].numpy(), color='blue', linewidth=1)
-        # plt.plot(r_result[1], color='green', linewidth=1)
-        # plt.plot(true_state, '-.', color='red', linewidth=1)
-        # plt.show()
+        plt.plot(infer_result_standalone[0].numpy(), color='black', linewidth=1)
+        plt.plot(r_result[1], color='green', linewidth=1)
+        plt.plot(true_state, '-.', color='red', linewidth=1)
+        plt.show()
         print('MSE error of the EKF from bssm: %.4f' % np.sum((r_result[1] - true_state) ** 2))
         print('MSE error of the EnKF from TFP: %.4f' % np.sum((infer_result[0].numpy() - true_state) ** 2))
 
@@ -117,9 +121,10 @@ class TestEnsembleKalmanFilter:
                                              obs_noise_std=0.2,
                                              nonlinear_type="nlg_sin_exp")
         infer_result = model_obj.ensemble_Kalman_filter(observation, num_particles=20)
+        infer_result_standalone = ensemble_kalman_filter(model_obj, observation, num_particles=20)
+
         print('MSE error of the EKF from bssm: %.4f' % np.sum((r_result[1] - true_state) ** 2))
         print('MSE error of the EnKF from TFP: %.4f' % np.sum((infer_result[0].numpy() - true_state) ** 2))
-
 
         # true_state = np.array(ro.r("x"))[..., None]
         # plt.plot(infer_result[0].numpy(), color='blue', linewidth=1)
@@ -188,8 +193,11 @@ class TestEnsembleKalmanFilter:
                                               dt=0.3,
                                               nonlinear_type="nlg_mv_model")
         infer_result = model_obj.ensemble_Kalman_filter(observation, num_particles=20)
+        infer_result_standalone = ensemble_kalman_filter(model_obj, observation, num_particles=20)
+
         true_state = np.array(ro.r("x"))[..., None]
-        plt.plot(infer_result[0][:, 0].numpy(), color='blue', linewidth=1)
+        plt.plot(infer_result_standalone[0][:, 0].numpy(), color='blue', linewidth=1)
+        plt.plot(r_result[0][:, 0], color='green', linewidth=1)
         plt.plot(true_state[:, 0], '-.', color='red', linewidth=1)
         plt.show()
         for i in range(true_state.shape[-1]):

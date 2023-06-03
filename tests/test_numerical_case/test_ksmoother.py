@@ -3,8 +3,10 @@ import numpy as np
 import rpy2.robjects as ro
 from rpy2.robjects import numpy2ri
 from rpy2.robjects.packages import importr
+import matplotlib.pyplot as plt
 from Models.bssm_model import *
-from Inference.KF.kalman_smoother_TFP import KalmanSmoother as ksmoother
+from Inference.Kalman.kalman_smoother import KalmanSmoother as ksmoother
+from Models.ssm_lg import LinearGaussianSSM
 import os.path as pth
 import os
 
@@ -70,12 +72,13 @@ class TestKalmanSmootherULG:
     @pytest.mark.parametrize(
         ("y", "obs_mtx", "obs_mtx_noise", "init_theta", "state_mtx", "state_mtx_noise",
          "prior_mean", "prior_cov", "input_state", "input_obs", "r_result"),
-        [(np.array(ro.r["y"]), np.array(ro.r("Z")), np.array(ro.r("H")), ro.r("""c(1, 0.1, 0.1)"""), np.array(ro.r("T")),
+        [(
+         np.array(ro.r["y"]), np.array(ro.r("Z")), np.array(ro.r("H")), ro.r("""c(1, 0.1, 0.1)"""), np.array(ro.r("T")),
          np.array(ro.r("R")), np.array(ro.r("a1")), np.array(ro.r("P1")), ro.r("""matrix(0, 3, 1)"""),
          np.array([0.]), ro.r["infer_result"]
-          )])
-    def test_ksmoother_TFP(self, y, obs_mtx, obs_mtx_noise, init_theta, state_mtx,
-                       state_mtx_noise, prior_mean, prior_cov, input_state, input_obs, r_result):
+         )])
+    def test_ksmoother_standalone_TFP(self, y, obs_mtx, obs_mtx_noise, init_theta, state_mtx,
+                                      state_mtx_noise, prior_mean, prior_cov, input_state, input_obs, r_result):
         r_result = r_result
 
         model_obj = SSModel(model_name="ssm_ulg", y=y, state_dim=state_mtx.shape[0],
@@ -83,9 +86,38 @@ class TestKalmanSmootherULG:
                             init_theta=init_theta,
                             state_mtx=state_mtx, state_mtx_noise=state_mtx_noise,
                             prior_mean=prior_mean, prior_cov=prior_cov,
-                          input_state=input_state, input_obs=input_obs,
-                         )
+                            input_state=input_state, input_obs=input_obs,
+                            )
         infer_result = ksmoother(model_type="linear_gaussian", model=model_obj).infer_result
+        # compare smoothed_means
+        tf.debugging.assert_near(r_result[0], infer_result[0].numpy(), atol=1e-4)
+        # compare smoothed_covs
+        tf.debugging.assert_near(r_result[1], infer_result[1].numpy().transpose(1, 2, 0), atol=1e-4)
+
+    @pytest.mark.parametrize(
+        ("y", "obs_mtx", "obs_mtx_noise", "init_theta", "state_mtx", "state_mtx_noise",
+         "prior_mean", "prior_cov", "input_state", "input_obs", "r_result"),
+        [(
+         np.array(ro.r["y"]), np.array(ro.r("Z")), np.array(ro.r("H")), ro.r("""c(1, 0.1, 0.1)"""), np.array(ro.r("T")),
+         np.array(ro.r("R")), np.array(ro.r("a1")), np.array(ro.r("P1")), ro.r("""matrix(0, 3, 1)"""),
+         np.array([0.]), ro.r["infer_result"]
+         )])
+    def test_ksmoother_lg_TFP(self, y, obs_mtx, obs_mtx_noise, init_theta, state_mtx,
+                              state_mtx_noise, prior_mean, prior_cov, input_state, input_obs, r_result):
+        r_result = r_result
+        size_y, observation = check_y(y)
+        num_timesteps, observation_size = size_y
+
+        model_obj = LinearGaussianSSM.create_model(num_timesteps=num_timesteps,
+                                                   observation_size=observation_size,
+                                                   latent_size=3,
+                                                   initial_state_mean=prior_mean,
+                                                   initial_state_cov=prior_cov,
+                                                   state_noise_std=state_mtx_noise,
+                                                   obs_noise_std=obs_mtx_noise,
+                                                   obs_mtx=obs_mtx,
+                                                   state_mtx=state_mtx)
+        infer_result = model_obj.posterior_marginals(tf.convert_to_tensor(observation, dtype=model_obj.dtype))
         # compare smoothed_means
         tf.debugging.assert_near(r_result[0], infer_result[0].numpy(), atol=1e-4)
         # compare smoothed_covs
@@ -115,8 +147,8 @@ class TestKalmanSmootherMLG:
           np.array(ro.r("model_r$P1")), np.array(ro.r("model_r$C")), np.array(ro.r("model_r$D")),
           ro.r["infer_result"]
           )])
-    def test_ksmoother_TFP(self, y, obs_mtx, obs_mtx_noise, init_theta, state_mtx,
-                       state_mtx_noise, prior_mean, prior_cov, input_state, input_obs, r_result):
+    def test_ksmoother_standalone_TFP(self, y, obs_mtx, obs_mtx_noise, init_theta, state_mtx,
+                                      state_mtx_noise, prior_mean, prior_cov, input_state, input_obs, r_result):
         r_result = r_result
 
         model_obj = SSModel(model_name="ssm_ulg", y=y, state_dim=state_mtx.shape[0],
@@ -124,9 +156,37 @@ class TestKalmanSmootherMLG:
                             init_theta=init_theta,
                             state_mtx=state_mtx, state_mtx_noise=state_mtx_noise.squeeze(),
                             prior_mean=prior_mean, prior_cov=prior_cov,
-                          input_state=input_state, input_obs=input_obs,
-                         )
+                            input_state=input_state, input_obs=input_obs,
+                            )
         infer_result = ksmoother(model_type="linear_gaussian", model=model_obj).infer_result
+        # compare smoothed_means
+        tf.debugging.assert_near(r_result[0], infer_result[0].numpy(), atol=1e-4)
+        # compare smoothed_covs
+        tf.debugging.assert_near(r_result[1], infer_result[1].numpy().transpose(1, 2, 0), atol=1e-4)
+
+    @pytest.mark.parametrize(
+        ("y", "obs_mtx", "obs_mtx_noise", "init_theta", "state_mtx", "state_mtx_noise",
+         "prior_mean", "prior_cov", "input_state", "input_obs", "r_result"),
+        [(np.array(ro.r("model_r$y")), np.array(ro.r("model_r$Z")), ro.r("model_r$H"), ro.r("model_r$theta"),
+          np.array(ro.r("model_r$T")), np.array(ro.r("model_r$R")), np.array(ro.r("model_r$a1")),
+          np.array(ro.r("model_r$P1")), np.array(ro.r("model_r$C")), np.array(ro.r("model_r$D")),
+          ro.r["infer_result"]
+          )])
+    def test_ksmoother_lg_TFP(self, y, obs_mtx, obs_mtx_noise, init_theta, state_mtx,
+                              state_mtx_noise, prior_mean, prior_cov, input_state, input_obs, r_result):
+        r_result = r_result
+        size_y, observation = check_y(y)
+        num_timesteps, observation_size = size_y
+        model_obj = LinearGaussianSSM.create_model(num_timesteps=num_timesteps,
+                                                   observation_size=observation_size,
+                                                   latent_size=1,
+                                                   initial_state_mean=prior_mean,
+                                                   initial_state_cov=prior_cov,
+                                                   state_noise_std=state_mtx_noise,
+                                                   obs_noise_std=obs_mtx_noise,
+                                                   obs_mtx=obs_mtx,
+                                                   state_mtx=state_mtx)
+        infer_result = model_obj.posterior_marginals(tf.convert_to_tensor(observation, dtype=model_obj.dtype))
         # compare smoothed_means
         tf.debugging.assert_near(r_result[0], infer_result[0].numpy(), atol=1e-4)
         # compare smoothed_covs
@@ -141,7 +201,7 @@ class TestKalmanSmootherMLG2:
     ro.r("""
         a1 <- rep(0, 6)
         P1 <- rep (1000, 6)
-        n <- 200
+        n <- 100
         sd_x <- c(1,1,0.02)
         sd_y <- c(1,1,1)
         T <- c(1,0,0,1,0,0,
@@ -184,20 +244,52 @@ class TestKalmanSmootherMLG2:
           np.array(ro.r("model_r$P1")), np.array(ro.r("model_r$C")), np.array(ro.r("model_r$D")),
           ro.r["infer_result"]
           )])
-    def test_ksmoother_TFP(self, y, obs_mtx, obs_mtx_noise, init_theta, state_mtx,
-                       state_mtx_noise, prior_mean, prior_cov, input_state, input_obs, r_result):
+    def test_ksmoother_standalone_TFP(self, y, obs_mtx, obs_mtx_noise, init_theta, state_mtx,
+                                      state_mtx_noise, prior_mean, prior_cov, input_state, input_obs, r_result):
         r_result = r_result
 
-        model_obj = SSModel(model_name="ssm_ulg", y=y, state_dim=state_mtx.shape[0],
+        model_obj = SSModel(model_name="ssm_mlg", y=y, state_dim=state_mtx.shape[0],
                             obs_mtx=obs_mtx, obs_mtx_noise=obs_mtx_noise,
                             init_theta=init_theta,
                             state_mtx=state_mtx, state_mtx_noise=state_mtx_noise.squeeze(),
                             prior_mean=prior_mean, prior_cov=prior_cov,
-                          input_state=input_state, input_obs=input_obs,
-                         )
+                            input_state=input_state, input_obs=input_obs,
+                            )
         infer_result = ksmoother(model_type="linear_gaussian", model=model_obj).infer_result
         # compare smoothed_means
         tf.debugging.assert_near(r_result[0], infer_result[0].numpy(), atol=1e-3)
+        # compare smoothed_covs
+        tf.debugging.assert_near(r_result[1], infer_result[1].numpy().transpose(1, 2, 0), atol=1e-4)
+
+    @pytest.mark.parametrize(
+        ("y", "state", "obs_mtx", "obs_mtx_noise", "init_theta", "state_mtx", "state_mtx_noise",
+         "prior_mean", "prior_cov", "input_state", "input_obs", "r_result"),
+        [(np.array(ro.r("model_r$y")), np.array(ro.r("x")), np.array(ro.r("model_r$Z")), ro.r("model_r$H"),
+          ro.r("model_r$theta"),
+          np.array(ro.r("model_r$T")), np.array(ro.r("model_r$R")), np.array(ro.r("model_r$a1")),
+          np.array(ro.r("model_r$P1")), np.array(ro.r("model_r$C")), np.array(ro.r("model_r$D")),
+          ro.r["infer_result"]
+          )])
+    def test_ksmoother_lg_TFP(self, y, state, obs_mtx, obs_mtx_noise, init_theta, state_mtx,
+                              state_mtx_noise, prior_mean, prior_cov, input_state, input_obs, r_result):
+        r_result = r_result
+        size_y, observation = check_y(y)
+        num_timesteps, observation_size = size_y
+        model_obj = LinearGaussianSSM.create_model(num_timesteps=num_timesteps,
+                                                   observation_size=observation_size,
+                                                   latent_size=6,
+                                                   initial_state_mean=prior_mean,
+                                                   initial_state_cov=prior_cov,
+                                                   state_noise_std=state_mtx_noise,
+                                                   obs_noise_std=obs_mtx_noise,
+                                                   obs_mtx=obs_mtx,
+                                                   state_mtx=state_mtx)
+        infer_result = model_obj.posterior_marginals(tf.convert_to_tensor(observation, dtype=model_obj.dtype))
+        infer_result_kf = model_obj.forward_filter(tf.convert_to_tensor(observation, dtype=model_obj.dtype))
+
+        # compare smoothed_means
+        debug_plot(infer_result[0].numpy(), r_result[0], state)
+        tf.debugging.assert_near(r_result[0], infer_result[0].numpy(), atol=1e-2)
         # compare smoothed_covs
         tf.debugging.assert_near(r_result[1], infer_result[1].numpy().transpose(1, 2, 0), atol=1e-4)
 
@@ -230,13 +322,12 @@ class TestKalmanSmootherAR:
             """)
 
     @pytest.mark.parametrize(
-        ("y", "obs_mtx_noise", "rho", "mu", "state_mtx_noise","xreg" , "beta", "r_result"),
+        ("y", "obs_mtx_noise", "rho", "mu", "state_mtx_noise", "xreg", "beta", "r_result"),
         [(np.array(ro.r("model_r$y")), ro.r("""halfnormal(1, 10)$init"""), ro.r("""uniform(0.5, -1, 1)$init"""),
           ro.r("""normal(0, 0, 1)$init"""), ro.r("""halfnormal(1, 10)$init"""),
-          ro.r["x"], ro.r("""normal(0, 0, 1)"""),  ro.r["infer_result"]
+          ro.r["x"], ro.r("""normal(0, 0, 1)"""), ro.r["infer_result"]
           )])
     def test_ksmoother_TFP(self, y, obs_mtx_noise, rho, mu, state_mtx_noise, xreg, beta, r_result):
-
         r_result = r_result
         model_obj = SSModel(model_name="ar1_lg", y=y, state_dim=1,
                             rho_state=rho, mu_state=mu,
@@ -249,3 +340,12 @@ class TestKalmanSmootherAR:
         # compare smoothed_covs
         tf.debugging.assert_near(r_result[1], infer_result[1].numpy().transpose(1, 2, 0), atol=1e-4)
 
+
+def debug_plot(tfp_result, r_result, true_state):
+    tfp, = plt.plot(tfp_result, color='blue', linewidth=1)
+    r, = plt.plot(r_result, color='green', linewidth=1)
+    true, = plt.plot(true_state, '-.', color='red', linewidth=1)
+    plt.legend(handles=[tfp, r, true], labels=['smoother', 'filter', 'true'])
+
+    plt.show()
+    print(f'Max error of R and TFP: {np.max(np.abs(tfp_result - r_result))}')

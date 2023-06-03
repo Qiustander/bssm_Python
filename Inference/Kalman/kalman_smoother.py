@@ -4,10 +4,16 @@ tfd = tfp.distributions
 import collections
 from runtime_wrap import get_runtime
 
+"""
+The Kalman smoother is implemented based on the posterior_marginals function in Tensorflow
+Probability Linear Gaussian SSM Model. The LinearGaussian SSM is implemented in Models.ssm_lg.
+So this function is deprecated.
+"""
 
-class KalmanFilter:
+
+class KalmanSmoother:
     """
-    Implement the Kalman filter via Tensorflow Probability official model
+    Implement the Kalman Smoother via Tensorflow Probability official model
 
     ssm_ulg & ssm_mlg: tfd.LinearGaussianStateSpaceModel
     bsm_lg: tfp.sts.LocalLevelStateSpaceModel
@@ -18,13 +24,14 @@ class KalmanFilter:
         for key, value in kwargs.items():
             setattr(self, key, value)
 
-        def_kfmethod = getattr(self, f"kf_{kwargs['model_type']}")
+        def_kfmethod = getattr(self, f"ksmoother_{kwargs['model_type']}")
 
         self.infer_result = def_kfmethod(model=kwargs['model'])
 
-    # @tf.function
-    def kf_linear_gaussian(self, model):
-        """Kalman Filter for Linear Gaussian case, including ssm_ulg & ssm_mlg & ar1_lg
+
+    @tf.function
+    def ksmoother_linear_gaussian(self, model):
+        """Kalman Smoother for Linear Gaussian case, including ssm_ulg & ssm_mlg & ar1_lg
         Args:
             model: bssm model object
             The input and output control variables are combined in the noise process.
@@ -39,8 +46,7 @@ class KalmanFilter:
                             sample_shape(x) + batch_shape + [num_timesteps, latent_size].
             filtered_covs:	Covariances of the per-timestep filtered marginal
                             distributions p(z[t] | x[:t]), as a Tensor of shape sample_shape(x)
-                             + batch_shape +
-                             [num_timesteps, latent_size,latent_size].
+                             + batch_shape + [num_timesteps, latent_size,latent_size].
                              Since posterior covariances do not depend on observed data,
                              some implementations may return a Tensor whose shape omits
                              the initial sample_shape(x).
@@ -93,12 +99,11 @@ class KalmanFilter:
                                         tf.linalg.LinearOperatorLowerTriangular(tf.linalg.cholesky(model.prior_cov)))
         )
 
-
-        infer_result = lg_model.forward_filter(tf.convert_to_tensor(observation))
+        infer_result = lg_model.posterior_marginals(tf.convert_to_tensor(observation))
         # infer_result = self.run_kf(lg_model, tf.convert_to_tensor(observation))
         return infer_result
 
-
+    #
     # """Only for runtime testing
     # """
     # @staticmethod
@@ -119,17 +124,6 @@ def process_tv(model, attritube):
         return tf.linalg.LinearOperatorFullMatrix(tf.gather(tf.convert_to_tensor(getattr(model, attritube))
                                                   , indices=t, axis=-1))
     return matrix_tv
-
-
-# TODO: how to find out whether noise or input is time-varying
-#TODO: for debugging stage here,  wrap in the future
-
-# def noise_constructor(model):
-#
-#     return tfd.MultivariateNormalLinearOperator(
-#                          loc=tf.convert_to_tensor(model.input_state.flatten()),
-#                         scale=tf.convert_to_tensor(model.state_mtx_noise) if len(model.state_mtx_noise.shape) == 1
-#                                 else tf.linalg.LinearOperatorFullMatrix(model.state_mtx_noise))
 
 
 
