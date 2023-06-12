@@ -1,7 +1,10 @@
-## Inference Functions of TFP Based BSSM
+## Inference Functions of TFP SSM 
 
 
-At first, want to split the inference functions beyond the model classes. Perhaps combine all inference functions as the class methods in the future.
-
-#### KF
-Kalman filter for linear Guassian.
+### Kalman-Based Methods [Kalman](Kalman)
+*  extended Kalman filter [extended_kalman_filter.py](Kalman%2Fextended_kalman_filter.py)
+*  extended Kalman smoother [extended_kalman_smoother.py](Kalman%2Fextended_kalman_smoother.py)
+*  ensemble Kalman filter [ensemble_kalman_filter.py](Kalman%2Fensemble_kalman_filter.py)
+*  unscented Kalman filter [unscented_kalman_filter.py](Kalman%2Funscented_kalman_filter.py)
+* [kalman_filter.py](Kalman%2Fkalman_filter.py) depecrated
+* [kalman_smoother.py](Kalman%2Fkalman_smoother.py) depecrated

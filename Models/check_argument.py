@@ -2,39 +2,35 @@ import numpy as np
 from .prior import is_prior, is_prior_list
 
 
-# TODO: Be Pythonic.. Not expand dim
-def check_y(x, multivariate=False, distribution="gaussian"):
+def check_y(x, fill_missing=0., filling=True):
     """
     Args:
-        x: input time series with length n  (second last dimension), can contain missing values for imputation
-        multivariate: whether the time series is multivariate
-        distribution: distribution in the multivariate time series
-
+        x: input observed time series with dimension n x p
+        can contain missing values for imputation
+        fill_missing: the values filled for NA positions
     Returns:
-        n (int): length of the time series
+        shape_x (tuple): shape of time series n, p
+        x: time series n x p
     """
+
+    if type(x) in [float, int]:
+        raise TypeError("Scalar is not allowed.")
+    elif type(x) in [list, tuple]:
+        x = np.array(x)
+    if np.isinf(x).any():
+        raise TypeError("Argument 'y' must contain only finite or NA values.")
     if not np.isnan(x).all():
-        if multivariate:
-            if not isinstance(x, np.ndarray) or x.ndim != 2:
-                raise ValueError("Argument 'y' must be a Tensor or Numpy array")
-            if x.shape[0] < 2:
-                raise ValueError("Number of rows in 'y', i.e. number of time points, must be > 1.")
-        else:
-            if not x.shape:
-                raise ValueError("Scalar is not accepted.")
-            if len(x.shape) == 1:
-                x = x[..., None]
+        x = np.nan_to_num(x)
+        if len(x.shape) > 3:
+            raise ValueError("Only two-dimensional time series n x p is accepted.")
+        if len(x.shape) == 2 and x.shape[0] < 2:
+            raise ValueError("Number of rows in 'y', i.e. number of time points, must be > 1.")
+        if len(x.shape) == 1:
             if x.shape[0] < 2:
                 raise ValueError("Length of argument y, i.e. number of time points, must be > 1.")
-            if distribution != "gaussian" and (np.logical_not(np.isnan(x)) & (x < 0)).any():
-                raise AttributeError(f"Negative values not allowed for {distribution} distribution.")
-            elif distribution in ["negative binomial", "binomial", "poisson"]:
-                finite_x = x[np.isfinite(x)]
-                if np.any((finite_x != finite_x.astype(int))):
-                    raise AssertionError(f"Non-integer values not allowed for {distribution} distribution.")
-        if np.isinf(x).any():
-            raise TypeError("Argument 'y' must contain only finite or NA values.")
-
+            x = x[..., None]
+    else:
+        raise TypeError("Could not be empty array, or could not be all NA values.")
     return x.shape, x
 
 
@@ -94,19 +90,34 @@ def check_mu(x):
         raise ValueError("Argument 'mu' must contain only finite values.")
     raise ValueError("No return.")
 
+
 def check_rho(x):
-        #TODO: unittest to check [x]
-        if isinstance(x, np.ndarray) and len(x) == 1:
-            return x
-        if type(x) in [float, int, list]:
-            return np.array(x)[None]
-        if not x.shape:
-            return x[None]
-        if len(x) != 1:
-            raise ValueError("Argument 'rho' must be of length one.")
-        if abs(x) >= 1:
-            raise ValueError("Argument 'rho' must be strictly between -1 and 1.")
-        raise ValueError("No return.")
+    """
+
+    Args:
+        x: rho parameter for AR(1) model
+
+    Returns:
+        x: if it satisfies the condition
+    """
+    if not x:
+        raise ValueError("rho could not be None.")
+    try:
+        if type(x) in [float, int]:
+            x = np.array(x)[None]
+        elif type(x) in [list, tuple]:
+            x = np.array(x)
+    except:
+        raise TypeError("Must be numeric")
+    if len(x) != 1:
+        raise ValueError("Argument 'rho' must be of length one.")
+    if abs(x) >= 1:
+        raise ValueError("Argument 'rho' must be strictly between -1 and 1.")
+
+    if isinstance(x, np.ndarray) and len(x.shape) == 1:
+        return x
+    if not x.shape:
+        return x[None]
 
 def check_phi(x):
     if x < 0:
@@ -127,7 +138,7 @@ def check_prop(x):
 
 def check_input_obs(x, p, n):
     """Check intercept terms \eqn{D_t} for the observations equation,
-        given as a scalar, vector n, vector p, or matrix p x n.
+    given as a [p,] vector, or p x n (time-varying) matrix.
     Args:
         x:
         p:
@@ -136,10 +147,8 @@ def check_input_obs(x, p, n):
     Returns:
 
     """
-    #TODO unit test for p <1
-    # TODO unittest raise error when input is float
     if x is None:
-        x = np.zeros([p,])
+        return np.zeros([p,])
     else:
         if type(x) in [float, int, list]:
             x = np.array(x)
@@ -148,7 +157,7 @@ def check_input_obs(x, p, n):
         x = x.squeeze()
         if p == 1: #univariate
             if not x.shape:
-                x = x[None]
+                return x[None]
             if not np.size(x) in (1, n):
                 raise ValueError("input obs variable must be a scalar or length n,"
                                  " where n is the number of observations.")
@@ -156,15 +165,15 @@ def check_input_obs(x, p, n):
             if len(x.shape) == 1 and not x.shape[0] == p:
                 raise ValueError("input obs variable must be p or p x n matrix, "
                                  "where p is the number of series.")
-            elif len(x.shape) == 2 and not x.shape[-1] == n:
-                raise ValueError("input obs variable must be p or p x n matrix, "
-                                 "where p is the number of series.")
+            elif len(x.shape) == 2 and (not x.shape[-1] == n or not x.shape[0] == p):
+                    raise ValueError("input obs variable must be p or p x n matrix, "
+                                     "where p is the number of series.")
     return x
 
 
 def check_input_state(x, m, n):
     """Check Intercept terms \eqn{C_t} for the state equation,
-    given as a m vector, or m x n matrix.
+    given as a [m,] vector, or m x n (time-varying) matrix.
     Args:
         x:
         m:
@@ -174,7 +183,7 @@ def check_input_state(x, m, n):
 
     """
     if x is None:
-        x = np.zeros([m,])
+        return np.zeros([m,])
     else:
         if type(x) in [float, int, list]:
             x = np.array(x)
@@ -194,7 +203,7 @@ def check_input_state(x, m, n):
 
 def check_obs_mtx_noise(x, p, n):
     """Check Noise coefficient matrix H (lower triangular) for the observed euqation.
-        Either a p x p matrix or p x p x n array.
+        Either a p x p matrix or p x p x n (time-varying) array.
     Args:
         x:
         p:
@@ -203,27 +212,33 @@ def check_obs_mtx_noise(x, p, n):
     Returns:
 
     """
+    if n == 1:
+        raise ValueError("Length of time series n must larger than 1.")
     if type(x) in [float, int, list]:
         x = np.array(x)
     elif not isinstance(x, np.ndarray):
-        raise ValueError("obs noise must be numeric.")
+        raise ValueError("obs noise std matrix must be numeric.")
     x = x.squeeze()
     if p == 1:
         if not x.shape:
             return x[None, None]
         if (x.size > 1 and x.size != n):
-            raise ValueError("obs noise covariance must be a scalar or length n, "
+            raise ValueError("time-varying obs noise std matrix must be p x p x n, "
                              "where n is the length of the time series y")
-    else:
+        else:
+            return x[None, None]
+    else: # multivariate
+        if not x.shape or x.shape== 1:
+            raise ValueError(
+                "obs noise std matrix must be a m x m matrix ")
         if len(x.shape) == 2:
             if x.shape != (p, p):
                 raise ValueError(
-                    "obs noise covariance' must be a p x p matrix "
-                    "where p is the number of series and n is the length of the series.")
+                    "obs noise std matrix must be a p x p matrix ")
         elif len(x.shape) == 3:
-            if x.shape[:2] != (p, p) and x.shape[2] != n:
+            if x.shape != (p, p, n):
                 raise ValueError(
-                    "obs noise covariance must p x p x n matrix, "
+                    "obs noise std matrix must p x p x n matrix, "
                     "where p is the number of series and n is the length of the series.")
 
     return x
@@ -231,7 +246,8 @@ def check_obs_mtx_noise(x, p, n):
 
 def check_state_noise(x, m, n):
     """
-    Check noise  matrix R (lower triangular) the state equation. Either a m x k matrix or a m x k x n array.
+    Check noise  matrix R (lower triangular) the state equation.
+    Either a m x k (k<=m) matrix or a m x k (k<=m) x n (time-varying) array.
     Args:
         x:
         m:
@@ -240,24 +256,35 @@ def check_state_noise(x, m, n):
     Returns:
 
     """
+    if n == 1:
+        raise ValueError("Length of time series n must larger than 1.")
     if type(x) in [float, int, list]:
         x = np.array(x)
     elif not isinstance(x, np.ndarray):
         raise ValueError("state noise must be numeric.")
     x = x.squeeze()
-    try:
+
+    if m == 1:
         if not x.shape:
+            return x[None, None] # [[scalar]]
+        if (x.size > 1 and x.size != n):
+            raise ValueError("time-varying state noise std matrix must be m x k (k<=m) x n, "
+                             "where n is the length of the time series y")
+        else:
             return x[None, None]
-        if x.size==1 and m !=1 :
-            raise ValueError("state noise covariance is a scalar now, it must be a (m x k) matrix.")
-        elif len(x.shape) == 2 and (x.shape[0] != m or x.shape[1] > m):
-            raise ValueError("state noise covariance must be a (m x k) matrix, "
-                             "where m is the number of states.")
-        elif len(x.shape) == 3 and (x.shape[0] != m or x.shape[1] > m) and x.shape[-1] != n:
-            raise ValueError("state noise covariance must be a  (m x k x n) array, "
-                                     "where k <= m is the number of disturbances eta, and m is the number of states.")
-    except:
-        raise ValueError('The dimension of state noise covariance must be: 1, 2, 3. Warning: np.array(scalar) has dim 0.')
+    else:
+        if not x.shape or x.shape == 1:
+            raise ValueError(
+                "state noise std matrix must be a m x x k (k<=m) matrix ")
+        if len(x.shape) == 2:
+            if x.shape[0] != m or x.shape[-1] > m:
+                raise ValueError(
+                    "state noise std matrix must be a m x k (k<=m) matrix ")
+        elif len(x.shape) == 3:
+            if x.shape[0] != m or x.shape[1] > m or x.shape[-1] != n:
+                raise ValueError(
+                    "state noise std matrix must m x k (k<=m) x n matrix, "
+                    "where p is the number of series and n is the length of the series.")
 
     return x
 
@@ -268,8 +295,7 @@ def check_obs_mtx(x, p, n, m):
     """
     Check system matrix Z of the observation equation.
     Args:
-        x (np.array): observation matrix.  Either a vector of length 1 x m,
-        a 1 x m x n matrix, p x m matrix or p x m x n
+        x (np.array): observation matrix.  Either a  p x m matrix or p x m x n
         p: dim of time series (multivariate)
         n: time length
         m: dimension of state
@@ -277,61 +303,53 @@ def check_obs_mtx(x, p, n, m):
     Returns:
 
     """
-    #TODO unit test for p <1
-    flag = None
-    if type(x) in [float, int] and m == 1:
-        return np.reshape(np.array(x), (1, 1))
+    def error_case(case):
+        if case == 1:
+            return "obs matrix must be numeric."
+        elif case == 2:
+            return "obs matrix must be a (p x m) matrix or (p x m x n) array "\
+                             "where p is the feature of series, m is the number of states, "\
+                             "and n is the length of the series."
+
+    if type(x) in [float, int, list]:
+        if m == 1:
+            x = np.array(x)
+        else:
+            raise ValueError(error_case(2))
     elif not isinstance(x, np.ndarray):
-        flag = 1
+        raise TypeError(error_case(1))
+    if len(x.shape) == 3 and x.shape[-1] == 1: # p m 1,
+        x = np.squeeze(x, axis=-1)
+    if len(x.shape) == 3: # still have 3 dim
+        if x.shape == (p, m, n):
+            return x
+        else:
+            raise ValueError(error_case(2))
+
     if p == 1:
         if not x.shape and m == 1: return np.reshape(x, (1, 1))
-        if not x.shape and m != 1: flag = 2
+        if not x.shape and m != 1: raise ValueError(error_case(2))
         if len(x.shape) == 1 and m == 1: return x[None]
-        if len(x.shape) == 1 and m != 1: flag = 2
+        if len(x.shape) == 1 and m != 1: raise ValueError(error_case(2))
         if len(x.shape) == 2:
-            if not (x.shape[0] == m and x.shape[1] == n) or (x.shape[0] == m and x.shape[1] == 1)\
-                or (x.shape[0] == 1 and x.shape[1] == m): flag = 2
-            if not flag and (x.shape[0] == m and x.shape[1] == 1):
-                return x.transpose(1, 0)
-            if not flag and (x.shape[0] == m and x.shape[1] == n):
+            if not x.shape in ((p, m), (p, n), (m, n)): raise ValueError(error_case(2))
+            # if not ((x.shape[0] == m and x.shape[1] == n) or (x.shape[0] == m and x.shape[1] == 1)
+            #     or (x.shape[0] == 1 and x.shape[1] == m)): raise ValueError(error_case(2))
+            if (x.shape[0] == m and x.shape[1] == n and p ==1):
                 return x[None]
-        if len(x.shape) == 3:
-            if x.shape[-1] != n: flag = 2
-            if not flag and (x.shape[0] == m and x.shape[1] == 1):
-                return x.transpose((1, 0, 2))
+            else:
+                return x
     else:  # multivariate
-        if type(x) in [float, int] and m == 1:
-            return np.array(x)[None]
-        elif not isinstance(x, np.ndarray):
-            flag = 1
-        if not x.shape or x.size == 1 or len(x.shape) == 1: flag = 3
-        if len(x.shape) == 3:
-            if not x.shape in ((p, m), (m, p)): flag = 3 # shape is 2
-            elif x.shape == (m, p): return x.transpose((1, 0))
-            else: return x
-        if len(x.shape) == 3: # p m 1,
-            if x.shape[-1] == 1: return np.squeeze(x, axis=-1)
-            if x.shape[-1] != n: flag = 3
-            if not x.shape in ((p, m, n), (m, p, n)): flag = 3 # shape is 2
-            elif x.shape == (m, p, n): return x.transpose((1, 0))
-            else: return x
+        if not x.shape or x.size == 1 or len(x.shape) == 1: raise ValueError(error_case(2))
+        if m == 1 and len(x.shape)==1: return np.array(x)[None]
+        if x.shape == (p, m): return x
 
-    if flag == 1:
-        raise ValueError("obs matrix must be numeric.")
-    elif flag == 2:
-        raise ValueError("obs matrix must be a (1 x m) or (1 x m x n) matrix,"
-                         " where m is the number of states and n is the length of the series.")
-    elif flag == 3:
-        raise ValueError("obs matrix must be a (p x m) matrix or (p x m x n) array "
-                         "where p is the feature of series, m is the number of states, "
-                         "and n is the length of the series.")
-
-    raise ValueError(" shape error of obs matrix")
+    raise ValueError("shape error of obs matrix")
 
 
 def check_state_mtx(x, m, n):
     """
-    Check system matrix T of the state equation. Either a m x m matrix or a m x m x n array.
+    Check system matrix T of the state equation. Either a m x m matrix or a m x m x n (time-varying) array.
     Args:
         x (np.array): state matrix
         m:
@@ -341,42 +359,44 @@ def check_state_mtx(x, m, n):
         x: m x m  or m x m x n
 
     """
-    flag = None
-    if type(x) in [float, int] and m == 1:
-        return np.reshape(np.array(x), (1, 1))
-    elif not isinstance(x, np.ndarray): flag = 1
-    if len(x.shape) == 1 and m!=1: flag = 2
+
+    def error_case(case):
+        if case == 1:
+            return "state matrix must be numeric."
+        elif case == 2:
+            return "state matrix can not be a scalar, it must be a (m x m) matrix."
+        elif case == 3:
+            return "state matrix must be a (m x m) matrix, "\
+                                     "where m is the number of states."
+        elif case == 4:
+            return "state matrix must be a (m x m x n) array, "\
+                                     "where m is the number of states."
+
+    if type(x) in [float, int, list]:
+        if m == 1:
+            x = np.reshape(np.array(x), (1, 1))
+        else:
+            raise ValueError(error_case(2))
+    elif not isinstance(x, np.ndarray): raise TypeError(error_case(1))
+    if len(x.shape) == 1 and m!=1: raise ValueError(error_case(2))
     if len(x.shape) == 1 and m==1: return x[None]
     if len(x.shape) == 2:
-        if x.shape[0] != m or x.shape[1] != m: flag = 3
+        if m == 1 and x.shape == (m, n): return x[None]
+        if x.shape != (m, m): raise ValueError(error_case(3))
         else: return x
     if len(x.shape) == 3:
-        # TODO: unittest: for m != 1 should also np.squeeze(x, axis=-1)
-        if x.shape[-1] == 1: return np.squeeze(x, axis=-1)
-        if x.shape != (m, m, n): flag = 4
+        if x.shape[-1] == 1 and x.shape[:-1] == (m, m): return np.squeeze(x, axis=-1)
+        if x.shape != (m, m, n): raise ValueError(error_case(4))
         else: return x
 
-    if flag == 1:
-        raise ValueError("state matrix must be numeric.")
-    elif flag == 2:
-        ValueError("state matrix is a scalar now, it must be a (m x m) matrix.")
-    elif flag == 3:
-        raise ValueError("state matrix must be a (m x m) matrix, "
-                                     "where m is the number of states.")
-    elif flag == 4:
-        raise ValueError("state matrix must be a (m x m x n) array, "
-                                     "where m is the number of states.")
-
     raise ValueError(" shape error of obs matrix")
-
-
 
 
 ###### Check Prior mean and covariance
 
 def check_prior_mean(x, m):
     """
-    Check prior mean for the initial state as a vector of length m.
+    Check prior mean for the initial state as a vector of length [m,].
     Args:
         x:
         m:
@@ -390,9 +410,8 @@ def check_prior_mean(x, m):
         if type(x) in [float, int]:
             x = np.array(x)
         elif not isinstance(x, np.ndarray):
-            raise ValueError("prior mean must be numeric.")
+            raise TypeError("prior mean must be numeric.")
         if x.size == 1:
-            #TODO:very confusing in R code check_a1, why repeat when x.size==m
             x = np.repeat(x, m)
         elif x.size != m or len(x.shape)>1:
             raise ValueError("Misspecified prior mean, argument prior mean must be a vector of length m,"
@@ -413,10 +432,10 @@ def check_prior_cov(x, m):
     if x is None:
         x = np.zeros((m, m))
     else:
-        if type(x) in [float, int]:
+        if type(x) in [float, int, list]:
             x = np.array(x)
         elif not isinstance(x, np.ndarray):
-            raise ValueError("prior covariance must be numeric.")
+            raise TypeError("prior covariance must be numeric.")
 
         if x.size == 1 and m == 1:
             x = np.reshape(x, (1, 1))
@@ -538,8 +557,6 @@ def create_regression(beta, xreg, n):
                 coefs = beta.init
 
             check_beta(coefs, nx)
-
-            #TODO: In R need to assign name
 
         return {'xreg': xreg, 'coefs': coefs, 'beta': beta}
 

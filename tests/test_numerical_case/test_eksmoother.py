@@ -35,8 +35,8 @@ class TestExtendedKalmanSmoother:
 
     def test_kffilter_TFP_arexp(self):
         ro.r("""
-        mu <- -0.2
-        rho <- 0.7
+        mu <- 0.2
+        rho <- 0.5
         n <- 150
         sigma_y <- 0.1
         sigma_x <- 1
@@ -70,7 +70,7 @@ class TestExtendedKalmanSmoother:
                                  initial_state_mean=0.1,
                                  initial_state_cov=0,
                                 mu_state=0.2,
-                                rho_state=0.7,
+                                rho_state=0.5,
                                  state_noise_std=1.,
                                  obs_noise_std=0.1,
                                  nonlinear_type="nlg_ar_exp")

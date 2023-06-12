@@ -3,6 +3,7 @@ import tensorflow_probability as tfp
 from tensorflow_probability.python.internal import dtype_util
 tfd = tfp.distributions
 from tensorflow_probability.python.internal import prefer_static as ps
+import scipy
 from runtime_wrap import get_runtime
 import numpy as np
 from .check_argument import *
@@ -121,6 +122,27 @@ def _check_parameters(obs_len,
                        input_obs,
                        dtype,
                         **kwargs):
+    """
+    Create parameters for linear Gaussian model.
+    #TODO: how to create drop-rank std matrix for multivariate normal
+    Args:
+        obs_len:
+        state_dim:
+        obs_dim:
+        obs_mtx:
+        state_mtx:
+        state_noise:
+        obs_noise:
+        prior_mean:
+        prior_cov:
+        input_state:
+        input_obs:
+        dtype:
+        **kwargs:
+
+    Returns:
+
+    """
 
     # create Z - obs matrix
     obs_mtx = tf.convert_to_tensor(check_obs_mtx(obs_mtx, obs_dim, obs_len, state_dim), dtype=dtype)
@@ -133,15 +155,18 @@ def _check_parameters(obs_len,
                     if len(state_mtx.shape) == 2 else _process_mtx_tv(state_mtx, dtype)
 
     # create R - noise state matrix
-    state_mtx_noise = tf.convert_to_tensor(check_state_noise(state_noise, state_dim, obs_len), dtype=dtype)
+    state_mtx_noise = tf.convert_to_tensor(check_state_noise(state_noise, state_dim, obs_len), dtype=dtype) # already 3 dim
     input_state = tf.convert_to_tensor(check_input_state(input_state, state_dim, obs_len), dtype=dtype)
     time_vary_state_noise = False
     if input_state.shape[-1] == obs_len or state_mtx_noise.shape[-1] == obs_len:
         input_state = tf.repeat(input_state[..., None], obs_len, axis=-1) \
-                if input_state.shape[-1] == obs_len else input_state
+                if input_state.shape[-1] != obs_len else input_state
         state_mtx_noise = tf.repeat(state_mtx_noise[..., None], obs_len, axis=-1) \
-                if state_mtx_noise.shape[-1] == obs_len else state_mtx_noise
+                if state_mtx_noise.shape[-1] != obs_len else state_mtx_noise
         time_vary_state_noise = True
+    # state_mtx_noise_cov = tf.einsum('ijk,ljk->ilk', state_mtx_noise, state_mtx_noise) if time_vary_state_noise\
+    #                     else tf.einsum('ij,lj->il', state_mtx_noise, state_mtx_noise)
+
 
     # create H - noise obs matrix
     time_vary_obs_noise = False
@@ -149,10 +174,12 @@ def _check_parameters(obs_len,
     input_obs = tf.convert_to_tensor(check_input_obs(input_obs, obs_dim, obs_len), dtype=dtype)
     if input_obs.shape[-1] == obs_len or obs_mtx_noise.shape[-1] == obs_len:
         input_obs = tf.repeat(input_obs[..., None], obs_len, axis=-1) \
-                if input_obs.shape[-1] == obs_len else input_obs
+                if input_obs.shape[-1] != obs_len else input_obs
         obs_mtx_noise = tf.repeat(obs_mtx_noise[..., None], obs_len, axis=-1) \
-                if obs_mtx_noise.shape[-1] == obs_len else obs_mtx_noise
+                if obs_mtx_noise.shape[-1] != obs_len else obs_mtx_noise
         time_vary_obs_noise = True
+    # obs_mtx_noise_cov = tf.einsum('ijk,ljk->ilk', obs_mtx_noise, obs_mtx_noise) if time_vary_obs_noise\
+    #                     else tf.einsum('ij,lj->il', obs_mtx_noise, obs_mtx_noise)
 
     observation_noise = tfd.MultivariateNormalLinearOperator(
                                  loc=input_obs,
@@ -160,22 +187,21 @@ def _check_parameters(obs_len,
                 if not time_vary_obs_noise else\
         lambda x: tfd.MultivariateNormalLinearOperator(
                                  loc=input_obs[..., x],
-                            scale=tf.linalg.LinearOperatorFullMatrix(obs_mtx_noise[..., x:x+1]))
+                            scale=tf.linalg.LinearOperatorFullMatrix(obs_mtx_noise[..., x]))
     transition_noise = tfd.MultivariateNormalLinearOperator(
                                  loc=input_state,
                             scale=tf.linalg.LinearOperatorFullMatrix(state_mtx_noise)) \
                 if not time_vary_state_noise else\
         lambda x: tfd.MultivariateNormalLinearOperator(
                                  loc=input_state[..., x],
-                            scale=tf.linalg.LinearOperatorFullMatrix(state_mtx_noise[..., x:x+1]))
+                            scale=tf.linalg.LinearOperatorFullMatrix(state_mtx_noise[..., x]))
 
     prior_mean = tf.convert_to_tensor(check_prior_mean(prior_mean, state_dim), dtype=dtype)
     prior_cov = tf.convert_to_tensor(check_prior_cov(prior_cov, state_dim), dtype=dtype)
 
-    initial_state_prior = tfd.MultivariateNormalLinearOperator(
+    initial_state_prior = tfd.MultivariateNormalFullCovariance(
         loc=prior_mean,
-        scale=prior_cov if len(prior_cov.shape) == 1 else
-        tf.linalg.LinearOperatorLowerTriangular(tf.linalg.cholesky(prior_cov)))
+        covariance_matrix=prior_cov)
 
     return {"observation_matrix":observation_matrix, "transition_matrix":transition_matrix,
                "transition_noise":transition_noise, "observation_noise":observation_noise,

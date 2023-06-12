@@ -4,7 +4,7 @@ import rpy2.robjects as ro
 from rpy2.robjects import numpy2ri
 from rpy2.robjects.packages import importr
 from Models.ssm_nlg import NonlinearSSM
-from Inference.Kalman.extended_kalman_filter import extended_kalman_filter
+from Inference.Kalman.unscented_kalman_filter import unscented_kalman_filter
 from Models.check_argument import *
 import os.path as pth
 import os
@@ -26,11 +26,10 @@ bssm = importr('bssm', lib_loc=f"{pth.expanduser('~')}/R/x86_64-pc-linux-gnu-lib
 stat = importr('stats', lib_loc="/usr/lib/R/library")
 
 """
-bssm computes the next step prediction in the last time step,
-but in TFP.experimental.ekf does not. So could not use the TFP method since it
-fails to work in eksmoother.
+Note: bssm package uses fixed values for implementing the UKF: alpha = 1, beta = 0, kappa = 2
+and bssm uses wrong observation noise, the authors use std instead of covariance.
 """
-
+#TODO: re-compile bssm package
 
 class TestExtendedKalmanFilter:
     """
@@ -40,19 +39,20 @@ class TestExtendedKalmanFilter:
     def test_kffilter_TFP_arexp(self):
         ro.r("""
         mu <- -0.2
-        rho <- 0.5
+        rho <- 0.7
         n <- 150
         sigma_y <- 0.1
-        sigma_x <- 1
+        sigma_x <- 0.5
         x <- numeric(n)
         x[1] <- rnorm(1, mu, sigma_x / sqrt(1 - rho^2))
         for(i in 2:length(x)) {
           x[i] <- rnorm(1, mu * (1 - rho) + rho * x[i - 1], sigma_x)
         }
         y <- rnorm(n, exp(x), sigma_y)
-        
+        setwd('../../bssm_R/src')
         pntrs <- cpp_example_model("nlg_ar_exp")
-        
+        Rcpp::sourceCpp("model_ssm_nlg_edit.cpp")
+
         model_nlg <- ssm_nlg(y = y, a1 = pntrs$a1, P1 = pntrs$P1,
           Z = pntrs$Z_fn, H = pntrs$H_fn, T = pntrs$T_fn, R = pntrs$R_fn,
           Z_gn = pntrs$Z_gn, T_gn = pntrs$T_gn,
@@ -61,42 +61,43 @@ class TestExtendedKalmanFilter:
           log_prior_pdf = pntrs$log_prior_pdf,
           n_states = 1, n_etas = 1, state_names = "state")
         
-        infer_result <- ekf(model_nlg, iekf_iter = 0)
+        infer_result <- ukf(model_nlg, alpha = 0.01, beta = 2, kappa = 1)
             """)
         r_result = ro.r("infer_result")
         observation = np.array(ro.r("y"))
-        size_y, observation = check_y(observation.astype("float32"))  # return time length and feature numbers
+        size_y, observation = check_y(observation.astype("float32")) # return time length and feature numbers
         num_timesteps, observation_size = size_y
 
         model_obj = NonlinearSSM.create_model(num_timesteps=num_timesteps,
-                                              observation_size=observation_size,
-                                              latent_size=1,
-                                              initial_state_mean=0.1,
-                                              initial_state_cov=0,
-                                              mu_state=0.2,
-                                              rho_state=0.5,
-                                              state_noise_std=1.,
-                                              obs_noise_std=0.1,
-                                              nonlinear_type="nlg_ar_exp")
-        infer_result = extended_kalman_filter(model_obj, observation)
-        # infer_result2 = model_obj.extended_Kalman_filter(observation)
-        debug_plot(infer_result[0].numpy(), r_result[1], np.array(ro.r("x"))[..., None])
-        plt.plot(infer_result[1].numpy().squeeze())
-        plt.legend("Filtered Error Covariance")
+                                 observation_size=observation_size,
+                                 latent_size=1,
+                                 initial_state_mean=0.1,
+                                 initial_state_cov=0,
+                                mu_state=0.2,
+                                rho_state=0.7,
+                                 state_noise_std=0.5,
+                                 obs_noise_std=0.1,
+                                 nonlinear_type="nlg_ar_exp")
+
+        # infer_result = model_obj.unscented_Kalman_filter(observation, alpha=1e-2, beta=2., kappa=1.)
+        infer_result = unscented_kalman_filter(model_obj, observation, alpha=1e-2, beta=2., kappa=1.)
+
+        true_state = np.array(ro.r("x"))[..., None]
+        plt.plot(infer_result[0].numpy(), color='blue', linewidth=1)
+        plt.plot(r_result[1], color='green', linewidth=1)
+        plt.plot(true_state, '-.', color='red', linewidth=1)
         plt.show()
 
-        # compare loglik
-        # tf.debugging.assert_near(r_result[-1], infer_result[-1].numpy().sum(), atol=1e-1)
         # compare filtered_means
-        tf.debugging.assert_near(r_result[1], infer_result[0].numpy(), atol=5*1e-0)
+        tf.debugging.assert_near(r_result[1], infer_result[0].numpy(), atol=1e-0)
         # compare filtered_covs
         tf.debugging.assert_near(r_result[3], infer_result[1].numpy().transpose(1, 2, 0), atol=1e-0)
         # compare predicted_means
-        tf.debugging.assert_near(r_result[0], infer_result[2].numpy(), atol=1e-0)
+        tf.debugging.assert_near(r_result[0][1:, ...], infer_result[2].numpy(), atol=1e-0)
         # compare predicted_covs
-        tf.debugging.assert_near(r_result[2], infer_result[3].numpy().transpose(1, 2, 0), atol=1e-0)
+        tf.debugging.assert_near(r_result[2][..., 1:], infer_result[3].numpy().transpose(1, 2, 0), atol=1e-0)
 
-    def test_kffilter_standalone_sinexp(self):
+    def test_kffilter_TFP_sinexp(self):
         ro.r("""
         n <- 150
         x <- y <- numeric(n) + 0.1
@@ -115,7 +116,7 @@ class TestExtendedKalmanFilter:
           log_prior_pdf = pntrs$log_prior_pdf,
           n_states = 1, n_etas = 1, state_names = "state")
 
-        infer_result <- ekf(model_nlg, iekf_iter = 0)
+        infer_result <- ukf(model_nlg, alpha = 0.01, beta = 2, kappa = 1)
             """)
         r_result = ro.r("infer_result")
 
@@ -124,33 +125,34 @@ class TestExtendedKalmanFilter:
         num_timesteps, observation_size = size_y
 
         model_obj = NonlinearSSM.create_model(num_timesteps=num_timesteps,
-                                              observation_size=observation_size,
-                                              latent_size=1,
-                                              initial_state_mean=0,
-                                              initial_state_cov=1.,
-                                              state_noise_std=0.1,
-                                              obs_noise_std=0.2,
-                                              nonlinear_type="nlg_sin_exp")
+                                             observation_size=observation_size,
+                                             latent_size=1,
+                                             initial_state_mean=0,
+                                             initial_state_cov=1.,
+                                             state_noise_std=0.1,
+                                             obs_noise_std=0.2,
+                                             nonlinear_type="nlg_sin_exp")
+        # infer_result = model_obj.unscented_Kalman_filter(observation)
+        infer_result = unscented_kalman_filter(model_obj, observation, alpha=1e-2, beta=2., kappa=1.)
 
-        infer_result = extended_kalman_filter(model_obj, observation)
-        debug_plot(infer_result[0].numpy(), r_result[1], np.array(ro.r("x"))[..., None])
-        plt.plot(infer_result[1].numpy().squeeze())
-        plt.show()
+        # true_state = np.array(ro.r("x"))[..., None]
+        # plt.plot(infer_result[0].numpy(), color='blue', linewidth=1)
+        # plt.plot(r_result[1], color='green', linewidth=1)
+        # plt.plot(true_state, '-.', color='red', linewidth=1)
+        # plt.show()
 
-        # compare loglik
-        tf.debugging.assert_near(r_result[-1], infer_result[-1].numpy().sum(), atol=1e-2)
         # compare filtered_means
-        tf.debugging.assert_near(r_result[1], infer_result[0].numpy(), atol=1e-4)
+        tf.debugging.assert_near(r_result[1], infer_result[0].numpy(), atol=1e-3)
         # compare filtered_covs
-        tf.debugging.assert_near(r_result[3], infer_result[1].numpy().transpose(1, 2, 0), atol=1e-4)
+        tf.debugging.assert_near(r_result[3], infer_result[1].numpy().transpose(1, 2, 0), atol=1e-3)
         # compare predicted_means
-        tf.debugging.assert_near(r_result[0], infer_result[2].numpy(), atol=1e-4)
+        tf.debugging.assert_near(r_result[0][1:, ...], infer_result[2].numpy(), atol=1e-3)
         # compare predicted_covs
-        tf.debugging.assert_near(r_result[2], infer_result[3].numpy().transpose(1, 2, 0), atol=1e-1)
+        tf.debugging.assert_near(r_result[2][..., 1:], infer_result[3].numpy().transpose(1, 2, 0), atol=1e-3)
 
     def test_kffilter_TFP_mvmodel(self):
         ro.r("""
-        set.seed(1)
+       set.seed(1)
         n <- 200 
         sigma_y <- 0.1
         sigma_x <- c(0.1, 0.1, 0.2, 0.1)
@@ -190,8 +192,8 @@ class TestExtendedKalmanFilter:
           log_prior_pdf = pntrs$log_prior_pdf,
           known_params = known_params, 
           n_states = 4, n_etas = 4)
-
-        infer_result <- ekf(model_nlg, iekf_iter = 0)
+          
+        infer_result <- ukf(model_nlg, alpha = 0.01, beta = 2, kappa = 1)
             """)
         r_result = ro.r("infer_result")
 
@@ -202,30 +204,27 @@ class TestExtendedKalmanFilter:
         model_obj = NonlinearSSM.create_model(num_timesteps=num_timesteps,
                                               observation_size=observation_size,
                                               latent_size=4,
-                                              initial_state_mean=np.array([0., 1., 0.5, 0.]),
+                                              initial_state_mean=np.array([0, 1, 0.5, 0]),
                                               initial_state_cov=np.diag([1, 2, 1, 1.5]),
                                               state_noise_std=np.diag([0.1, 0.1, 0.2, 0.1]),
                                               obs_noise_std=np.diag([0.1, 0.1, 0.1]),
                                               dt=0.3,
                                               nonlinear_type="nlg_mv_model")
-        infer_result = extended_kalman_filter(model_obj, observation)
-        debug_plot(infer_result[0].numpy()[:, 0], r_result[1][:, 0], np.array(ro.r("x"))[:, 0])
-        plt.plot(infer_result[1].numpy()[:, 0, 0])
-        plt.show()
+        infer_result = model_obj.unscented_Kalman_filter(observation)
+        # true_state = np.array(ro.r("x"))[..., None]
+        # plt.plot(infer_result[0][:,0].numpy(), color='blue', linewidth=1)
+        # plt.plot(r_result[1][:,0], color='green', linewidth=1)
+        # plt.plot(true_state[:,0], '-.', color='red', linewidth=1)
+        # plt.show()
 
         # compare filtered_means
-        tf.debugging.assert_near(r_result[1][50:, :], infer_result[0][50:, :].numpy(), atol=1e-4)
+        tf.debugging.assert_near(r_result[1], infer_result[0].numpy(), atol=1e-3)
         # compare filtered_covs
-        tf.debugging.assert_near(r_result[3][50:, :], infer_result[1].numpy().transpose(1, 2, 0)[50:, :], atol=1e-4)
+        tf.debugging.assert_near(r_result[3], infer_result[1].numpy().transpose(1, 2, 0), atol=1e-3)
         # compare predicted_means
-        tf.debugging.assert_near(r_result[0][50:, :], infer_result[2][50:, :].numpy(), atol=1e-4)
+        tf.debugging.assert_near(r_result[0][1:, ...], infer_result[2].numpy(), atol=1e-3)
         # compare predicted_covs
-        tf.debugging.assert_near(r_result[2][50:, :], infer_result[3].numpy().transpose(1, 2, 0)[50:, :], atol=1e-1)
+        tf.debugging.assert_near(r_result[2][..., 1:], infer_result[3].numpy().transpose(1, 2, 0), atol=1e-3)
 
 
-def debug_plot(tfp_result, r_result, true_state):
-    plt.plot(tfp_result, color='blue', linewidth=1)
-    plt.plot(r_result, color='green', linewidth=1)
-    plt.plot(true_state, '-.', color='red', linewidth=1)
-    plt.show()
-    print(f'Max error of R and TFP: {np.max(np.abs(tfp_result - r_result))}')
+
