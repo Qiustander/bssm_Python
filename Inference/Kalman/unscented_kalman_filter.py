@@ -129,14 +129,21 @@ def build_forward_filter_step(transition_fn,
       from timestep `t` to `t-1`.
     """
     alpha, beta, kappa, state_dim = scaling_parameters
-    lamda = alpha ** 2 * (state_dim.__float__() + kappa) - state_dim.__float__()
-    num_sigma = 2 * state_dim.numpy() + 1
+    lamda = alpha ** 2 * (tf.cast(state_dim, dtype=observation_noise.dtype) + kappa) - tf.cast(state_dim, dtype=observation_noise.dtype)
+    num_sigma = 2 * state_dim + 1
 
     # determinstic sigma points
-    sigma_weight_mean = np.ones((num_sigma, 1)) / (2. * (lamda + state_dim.__float__()))
-    sigma_weight_mean[0] = lamda / (lamda + state_dim.__float__())
-    sigma_weight_cov = sigma_weight_mean.copy()
-    sigma_weight_cov[0] = sigma_weight_cov[0] + 1. - alpha ** 2 + beta
+    # sigma_weight_mean = tf.Variable(trainable=False)
+    sigma_weight_mean = tf.ones((num_sigma, 1)) / (2. * (lamda + tf.cast(state_dim, dtype=observation_noise.dtype)))
+    sigma_weight_mean = tf.ones((num_sigma, 1)) / (2. * (lamda + tf.cast(state_dim, dtype=observation_noise.dtype)))
+    sigma_weight_mean = tf.tensor_scatter_nd_update(
+    sigma_weight_mean, [[0, 0]], [lamda / (lamda + tf.cast(state_dim, dtype=observation_noise.dtype))], name=None
+                    )
+    sigma_weight_cov = tf.identity(sigma_weight_mean)
+    sigma_weight_cov = tf.tensor_scatter_nd_update(
+    sigma_weight_cov, [[0, 0]], sigma_weight_cov[0] + 1. - alpha ** 2 + beta, name=None
+                    )
+
 
     def forward_pass_step(state,
                           observations):

@@ -56,6 +56,15 @@ def nonlinear_fucntion(function_type,
     """
     # TODO : time varying
 
+    def jacobian_fn(jaco_fucn):
+        def inner_wrap(x):
+            with tf.GradientTape() as g:
+                g.watch(x)
+                y = jaco_fucn(x)
+            jaco_matrix = g.jacobian(y, x)
+            return jaco_matrix
+        return inner_wrap
+
     try:
         if function_type == "nlg_sin_exp":
 
@@ -71,8 +80,10 @@ def nonlinear_fucntion(function_type,
                     scale=tf.linalg.LinearOperatorFullMatrix(tf.cast(
                         check_state_noise(state_noise, state_dim, obs_len), dtype=dtype)))
 
-            observation_fn_grad = lambda x: tf.reshape(tf.exp(x[..., 0]), [obs_dim, state_dim])
-            transition_fn_grad = lambda x: tf.reshape(tf.cos(x[..., 0]), [state_dim, state_dim])
+            # observation_fn_grad = lambda x: tf.reshape(tf.exp(x[..., 0]), [obs_dim, state_dim])
+            observation_fn_grad = jacobian_fn(observation_fn)
+            # transition_fn_grad = lambda x: tf.reshape(tf.cos(x[..., 0]), [state_dim, state_dim])
+            transition_fn_grad = jacobian_fn(transition_fn)
 
             input_obs = check_input_obs(0., obs_dim, obs_len) if not isinstance(input_obs, np.ndarray) else \
                     check_input_obs(input_obs, obs_dim, obs_len)
@@ -120,8 +131,10 @@ def nonlinear_fucntion(function_type,
                     scale=tf.linalg.LinearOperatorFullMatrix(tf.cast(
                         check_state_noise(state_noise, state_dim, obs_len), dtype=dtype)))
 
-            observation_fn_grad = lambda x: tf.reshape(tf.exp(x[..., 0]), [obs_dim, state_dim])
-            transition_fn_grad = lambda x: tf.reshape(tf.cast(rho_state, dtype=dtype), [state_dim, state_dim])
+            # observation_fn_grad = lambda x: tf.reshape(tf.exp(x[..., 0]), [obs_dim, state_dim])
+            # transition_fn_grad = lambda x: tf.reshape(tf.cast(rho_state, dtype=dtype), [state_dim, state_dim])
+            transition_fn_grad = jacobian_fn(transition_fn)
+            observation_fn_grad = jacobian_fn(observation_fn)
 
             # The transition_noise_fn and observation_noise_fn are contained in the obs_fn
             # and state_fn for using extended Kalman filter. So only for definition for future usage
@@ -169,13 +182,15 @@ def nonlinear_fucntion(function_type,
                     scale=tf.linalg.LinearOperatorFullMatrix(tf.cast(
                         check_state_noise(state_noise, state_dim, obs_len), dtype=dtype)))
 
-            observation_fn_grad = lambda x: tf.reshape([2*x[..., 0], 0., 0., 0.,
-                                                       0., 3*x[..., 1]**2, 0., 0.,
-                                                       1., 1., 0.5, 2.], [obs_dim, state_dim])
-            transition_fn_grad = lambda x: tf.reshape([0.8, kwargs['dt'], 0., 0.,
-                                                       0., 0.7, kwargs['dt'], 0.,
-                                                       0., 0., 0.6, kwargs['dt'],
-                                                       kwargs['dt'], 0., 0., 0.6], [state_dim, state_dim])
+            # observation_fn_grad = lambda x: tf.reshape([2*x[..., 0], 0., 0., 0.,
+            #                                            0., 3*x[..., 1]**2, 0., 0.,
+            #                                            1., 1., 0.5, 2.], [obs_dim, state_dim])
+            # transition_fn_grad = lambda x: tf.reshape([0.8, kwargs['dt'], 0., 0.,
+            #                                            0., 0.7, kwargs['dt'], 0.,
+            #                                            0., 0., 0.6, kwargs['dt'],
+            #                                            kwargs['dt'], 0., 0., 0.6], [state_dim, state_dim])
+            transition_fn_grad = jacobian_fn(transition_fn)
+            observation_fn_grad = jacobian_fn(observation_fn)
 
             input_obs = check_input_obs(0., obs_dim, obs_len) if not isinstance(input_obs, np.ndarray) else \
                     check_input_obs(input_obs, obs_dim, obs_len)
@@ -219,8 +234,10 @@ def nonlinear_fucntion(function_type,
                     scale=tf.linalg.LinearOperatorFullMatrix(tf.cast(
                         check_state_noise(state_noise, state_dim, obs_len), dtype=dtype)))
 
-            observation_fn_grad = lambda x: tf.ones([obs_dim, state_dim], dtype=dtype)
-            transition_fn_grad = lambda x: tf.ones([state_dim, state_dim], dtype=dtype)
+            # observation_fn_grad = lambda x: tf.ones([obs_dim, state_dim], dtype=dtype)
+            # transition_fn_grad = lambda x: tf.ones([state_dim, state_dim], dtype=dtype)
+            transition_fn_grad = jacobian_fn(transition_fn)
+            observation_fn_grad = jacobian_fn(observation_fn)
 
             input_obs = check_input_obs(0., obs_dim, obs_len) if not isinstance(input_obs, np.ndarray) else \
                     check_input_obs(input_obs, obs_dim, obs_len)
@@ -267,10 +284,12 @@ def nonlinear_fucntion(function_type,
                     scale=tf.linalg.LinearOperatorFullMatrix(tf.cast(
                         check_state_noise(state_noise, state_dim, obs_len), dtype=dtype)))
 
-            observation_fn_grad = lambda x: tf.reshape([1., 0., 0., 0.,
-                                                       0., 1., 0., 0.,
-                                                       0., 0., 1., 0.1], [obs_dim, state_dim])
-            transition_fn_grad = lambda x: tf.linalg.tensor_diag(tf.ones([state_dim,], dtype=dtype))
+            # observation_fn_grad = lambda x: tf.reshape([1., 0., 0., 0.,
+            #                                            0., 1., 0., 0.,
+            #                                            0., 0., 1., 0.1], [obs_dim, state_dim])
+            # transition_fn_grad = lambda x: tf.linalg.tensor_diag(tf.ones([state_dim,], dtype=dtype))
+            transition_fn_grad = jacobian_fn(transition_fn)
+            observation_fn_grad = jacobian_fn(observation_fn)
 
             input_obs = check_input_obs(0., obs_dim, obs_len) if not isinstance(input_obs, np.ndarray) else \
                     check_input_obs(input_obs, obs_dim, obs_len)

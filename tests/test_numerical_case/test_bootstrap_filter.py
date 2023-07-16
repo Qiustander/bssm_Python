@@ -3,9 +3,9 @@ import numpy as np
 import rpy2.robjects as ro
 from rpy2.robjects import numpy2ri
 from rpy2.robjects.packages import importr
-from Models.ssm_nlg import NonlinearSSM
+from Models.ssm_nlg_tv import NonlinearSSM
+from Inference.SMC.bootstrap_filter import bootstrap_particle_filter
 from Models.check_argument import *
-from Inference.Kalman.extended_kalman_smoother import extended_kalman_smoother
 import os.path as pth
 import os
 import tensorflow as tf
@@ -27,27 +27,28 @@ bssm = importr('bssm', lib_loc=f"{pth.expanduser('~')}/R/x86_64-pc-linux-gnu-lib
 stat = importr('stats', lib_loc="/usr/lib/R/library")
 
 
-class TestExtendedKalmanSmoother:
+class TestBootstrapParticleFilter:
     """
-    Test Extended Kalman Smoother - ssm_nlg
+    Test Bootstrap Particle Filter - ssm_nlg
     """
 
     def test_kffilter_TFP_arexp(self):
         ro.r("""
-        mu <- 0.2
-        rho <- 0.5
+        mu <- -0.2
+        rho <- 0.7
         n <- 150
         sigma_y <- 0.1
-        sigma_x <- 1
+        sigma_x <- 0.5
         x <- numeric(n)
         x[1] <- rnorm(1, mu, sigma_x / sqrt(1 - rho^2))
         for(i in 2:length(x)) {
           x[i] <- rnorm(1, mu * (1 - rho) + rho * x[i - 1], sigma_x)
         }
         y <- rnorm(n, exp(x), sigma_y)
-        
+        setwd('../../bssm_R/src')
         pntrs <- cpp_example_model("nlg_ar_exp")
-        
+        Rcpp::sourceCpp("model_ssm_nlg_edit.cpp")
+
         model_nlg <- ssm_nlg(y = y, a1 = pntrs$a1, P1 = pntrs$P1,
           Z = pntrs$Z_fn, H = pntrs$H_fn, T = pntrs$T_fn, R = pntrs$R_fn,
           Z_gn = pntrs$Z_gn, T_gn = pntrs$T_gn,
@@ -56,7 +57,7 @@ class TestExtendedKalmanSmoother:
           log_prior_pdf = pntrs$log_prior_pdf,
           n_states = 1, n_etas = 1, state_names = "state")
         
-        infer_result <- ekf_smoother(model_nlg, iekf_iter = 0)
+        infer_result <- ukf(model_nlg, alpha = 0.01, beta = 2, kappa = 1)
             """)
         r_result = ro.r("infer_result")
         observation = np.array(ro.r("y"))
@@ -69,17 +70,28 @@ class TestExtendedKalmanSmoother:
                                  initial_state_mean=0.1,
                                  initial_state_cov=0,
                                 mu_state=0.2,
-                                rho_state=0.5,
-                                 state_noise_std=1.,
+                                rho_state=0.7,
+                                 state_noise_std=0.5,
                                  obs_noise_std=0.1,
                                  nonlinear_type="nlg_ar_exp")
 
-        infer_result = extended_kalman_smoother(model_obj, observation)
+        # infer_result = model_obj.unscented_Kalman_filter(observation, alpha=1e-2, beta=2., kappa=1.)
+        infer_result = bootstrap_particle_filter(model_obj, observation, num_particles=100)
 
-        # compare smoothed_means
-        tf.debugging.assert_near(r_result[0][50:,...], infer_result[0].numpy()[50:, ...], atol=1e-0)
-        # compare smoothed_covs
-        tf.debugging.assert_near(r_result[1][..., 50:], infer_result[1].numpy().transpose(1, 2, 0)[..., 50:], atol=1e-0)
+        true_state = np.array(ro.r("x"))[..., None]
+        plt.plot(infer_result[0].numpy(), color='blue', linewidth=1)
+        plt.plot(r_result[1], color='green', linewidth=1)
+        plt.plot(true_state, '-.', color='red', linewidth=1)
+        plt.show()
+
+        # compare filtered_means
+        tf.debugging.assert_near(r_result[1], infer_result[0].numpy(), atol=1e-0)
+        # compare filtered_covs
+        tf.debugging.assert_near(r_result[3], infer_result[1].numpy().transpose(1, 2, 0), atol=1e-0)
+        # compare predicted_means
+        tf.debugging.assert_near(r_result[0][1:, ...], infer_result[2].numpy(), atol=1e-0)
+        # compare predicted_covs
+        tf.debugging.assert_near(r_result[2][..., 1:], infer_result[3].numpy().transpose(1, 2, 0), atol=1e-0)
 
     def test_kffilter_TFP_sinexp(self):
         ro.r("""
@@ -100,7 +112,7 @@ class TestExtendedKalmanSmoother:
           log_prior_pdf = pntrs$log_prior_pdf,
           n_states = 1, n_etas = 1, state_names = "state")
 
-        infer_result <- ekf_smoother(model_nlg, iekf_iter = 0)
+        infer_result <- bootstrap_filter(model_nlg, particles = 100)
             """)
         r_result = ro.r("infer_result")
 
@@ -116,18 +128,29 @@ class TestExtendedKalmanSmoother:
                                              state_noise_std=0.1,
                                              obs_noise_std=0.2,
                                              nonlinear_type="nlg_sin_exp")
+        # infer_result = model_obj.unscented_Kalman_filter(observation)
+        infer_result = bootstrap_particle_filter(model_obj, observation, num_particles=100)
 
-        infer_result = extended_kalman_smoother(model_obj, observation)
+        true_state = np.array(ro.r("x"))[..., None]
+        plt.plot(infer_result[0].numpy(), color='blue', linewidth=1)
+        plt.plot(r_result[1], color='green', linewidth=1)
+        plt.plot(true_state, '-.', color='red', linewidth=1)
+        plt.show()
 
-        # compare smoothed_means
-        tf.debugging.assert_near(r_result[0], infer_result[0].numpy(), atol=1e-4)
-        # compare smoothed_covs
-        tf.debugging.assert_near(r_result[1], infer_result[1].numpy().transpose(1, 2, 0), atol=1e-4)
-
+        # compare filtered_means
+        tf.debugging.assert_near(r_result[1], infer_result.filtered_mean.numpy(), atol=1e-1)
+        # compare filtered_covs
+        tf.debugging.assert_near(r_result[3], infer_result.filtered_variance.numpy().transpose(1, 2, 0), atol=1e-1)
+        # compare predicted_means
+        tf.debugging.assert_near(r_result[0][1:, ...], infer_result.predicted_mean.numpy(), atol=1e-1)
+        # compare predicted_covs
+        tf.debugging.assert_near(r_result[2][..., 1:], infer_result.predicted_variance.numpy().transpose(1, 2, 0), atol=1e-1)
+        # compare log likelihood
+        tf.debugging.assert_near(r_result[-2], infer_result.incremental_log_marginal_likelihoods.numpy()[-1], atol=1e-3)
 
     def test_kffilter_TFP_mvmodel(self):
         ro.r("""
-        set.seed(1)
+       set.seed(1)
         n <- 200 
         sigma_y <- 0.1
         sigma_x <- c(0.1, 0.1, 0.2, 0.1)
@@ -167,8 +190,8 @@ class TestExtendedKalmanSmoother:
           log_prior_pdf = pntrs$log_prior_pdf,
           known_params = known_params, 
           n_states = 4, n_etas = 4)
-
-        infer_result <- ekf_smoother(model_nlg, iekf_iter = 0)
+          
+        infer_result <- bootstrap_filter(model_nlg, particles = 100)
             """)
         r_result = ro.r("infer_result")
 
@@ -179,29 +202,27 @@ class TestExtendedKalmanSmoother:
         model_obj = NonlinearSSM.create_model(num_timesteps=num_timesteps,
                                               observation_size=observation_size,
                                               latent_size=4,
-                                              initial_state_mean=np.array([0., 1., 0.5, 0.]),
+                                              initial_state_mean=np.array([0, 1, 0.5, 0]),
                                               initial_state_cov=np.diag([1, 2, 1, 1.5]),
                                               state_noise_std=np.diag([0.1, 0.1, 0.2, 0.1]),
                                               obs_noise_std=np.diag([0.1, 0.1, 0.1]),
                                               dt=0.3,
                                               nonlinear_type="nlg_mv_model")
-        # infer_result_ekf = extended_kalman_filter(model_obj, observation)
-        infer_result = extended_kalman_smoother(model_obj, observation)
-        # for i in range(4):
-        #     debug_plot(infer_result[0][:,i].numpy(), infer_result_ekf[0][:,i], np.array(ro.r("x"))[:,i] )
+        infer_result = bootstrap_particle_filter(model_obj, observation, num_particles=100)
+        # true_state = np.array(ro.r("x"))[..., None]
+        # plt.plot(infer_result[0][:,0].numpy(), color='blue', linewidth=1)
+        # plt.plot(r_result[1][:,0], color='green', linewidth=1)
+        # plt.plot(true_state[:,0], '-.', color='red', linewidth=1)
+        # plt.show()
 
-        # compare smoothed_means
-        tf.debugging.assert_near(r_result[0][30:,...], infer_result[0].numpy()[30:, ...], atol=1e-4)
-        # compare smoothed_covs
-        tf.debugging.assert_near(r_result[1][..., 30:], infer_result[1].numpy().transpose(1, 2, 0)[..., 30:], atol=1e-4)
+        # compare filtered_means
+        tf.debugging.assert_near(r_result[1], infer_result[0].numpy(), atol=1e-3)
+        # compare filtered_covs
+        tf.debugging.assert_near(r_result[3], infer_result[1].numpy().transpose(1, 2, 0), atol=1e-3)
+        # compare predicted_means
+        tf.debugging.assert_near(r_result[0][1:, ...], infer_result[2].numpy(), atol=1e-3)
+        # compare predicted_covs
+        tf.debugging.assert_near(r_result[2][..., 1:], infer_result[3].numpy().transpose(1, 2, 0), atol=1e-3)
 
 
 
-def debug_plot(tfp_result, r_result, true_state):
-    tfp, = plt.plot(tfp_result, color='blue', linewidth=1)
-    r, = plt.plot(r_result, color='green', linewidth=1)
-    true, = plt.plot(true_state, '-.', color='red', linewidth=1)
-    plt.legend(handles=[tfp, r, true], labels=['smoother', 'filter', 'true'])
-
-    plt.show()
-    print(f'Max error of R and TFP: {np.max(np.abs(tfp_result - r_result))}')

@@ -1,5 +1,4 @@
 import pytest
-import numpy as np
 import rpy2.robjects as ro
 from rpy2.robjects import numpy2ri
 from rpy2.robjects.packages import importr
@@ -10,6 +9,7 @@ import os.path as pth
 import os
 import tensorflow as tf
 import matplotlib.pyplot as plt
+tf.random.set_seed(123)
 
 os.environ["CUDA_VISIBLE_DEVICES"] = "0"
 # gpu = tf.config.list_physical_devices('GPU')

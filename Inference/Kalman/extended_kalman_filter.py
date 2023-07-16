@@ -6,7 +6,6 @@ from tensorflow_probability.python.distributions import mvn_tril
 from tensorflow_probability.python.distributions import normal
 from tensorflow_probability.python.internal import prefer_static
 from tensorflow_probability.python.math import linalg
-from runtime_wrap import get_runtime
 
 tfd = tfp.distributions
 

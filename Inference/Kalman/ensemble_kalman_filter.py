@@ -1,11 +1,12 @@
 import tensorflow as tf
 import tensorflow_probability as tfp
 from tensorflow_probability.python.internal import prefer_static
-from tensorflow_probability.python.math import linalg
-import numpy as np
+from tensorflow_probability.python.distributions import independent
+from tensorflow_probability.python.distributions import mvn_tril
+from tensorflow_probability.python.distributions import normal
+
 
 tfd = tfp.distributions
-
 
 @tf.function
 def ensemble_kalman_filter(ssm_model, observations, num_particles, dampling=1):
@@ -55,7 +56,7 @@ def ensemble_kalman_filter(ssm_model, observations, num_particles, dampling=1):
 
     prior_samples = ssm_model.initial_state_prior.sample(num_particles)
 
-    filtered_particles = forward_filter_pass(
+    (filtered_particles, log_marginal_likelihood) = forward_filter_pass(
         transition_fn=ssm_model.transition_plusnoise_fn,
         observation_fn=ssm_model.observation_plusnoise_fn,
         observations=observations,
@@ -102,8 +103,12 @@ def forward_filter_pass(transition_fn,
         observation_fn,
         scaling_parameters)
 
+    observations_shape = prefer_static.shape(
+        tf.nest.flatten(observations)[0])
+    dummy_zeros = tf.zeros(observations_shape[1:-1])
+
     filtered_particles = tf.scan(update_step_fn, elems=observations,
-                                         initializer=(initial_particles))
+                                         initializer=(initial_particles, dummy_zeros))
 
     return filtered_particles
 
@@ -125,12 +130,13 @@ def build_forward_filter_step(transition_fn,
         """Run a single step of backward smoothing."""
         dampling = scaling_parameters
 
-        filtered_particles = _ensemble_kalman_filter_one_step(filtered_ensembles, observations,
+        (filtered_particles,
+         log_marginal_likelihood) = _ensemble_kalman_filter_one_step(filtered_ensembles, observations,
                                                                      transition_fn=transition_fn,
                                                                      observation_fn=observation_fn,
                                                                      dampling=dampling)
 
-        return filtered_particles
+        return (filtered_particles, log_marginal_likelihood)
 
     return forward_pass_step
 
@@ -161,7 +167,7 @@ def _ensemble_kalman_filter_one_step(
 
     ############### Estimation
     state_prior_samples = tf.vectorized_map(lambda x:
-                                            transition_fn(x).sample(), filtered_ensembles)
+                                            transition_fn(x).sample(), filtered_ensembles[0])
 
     ########### Correction
     correct_samples = tf.vectorized_map(lambda x:
@@ -214,7 +220,34 @@ def _ensemble_kalman_filter_one_step(
         new_particles = tf.nest.map_structure(
             lambda x, a: x + dampling * a, state_prior_samples, added_term)
 
-    return new_particles
+
+    predicted_observations = observation_fn(state_prior_samples).mean()
+    observation_dist = mvn_tril.MultivariateNormalTriL(
+        loc=tf.reduce_mean(predicted_observations, axis=0),  # ensemble mean
+        # Cholesky(Cov(G(X)) + Γ), where Cov(..) is the ensemble covariance.
+        scale_tril=tf.linalg.cholesky(
+            _covariance(predicted_observations) +
+            _linop_covariance(observation_fn(state_prior_samples)).to_dense()))
+
+    log_marginal_likelihood = observation_dist.log_prob(observation)
+
+    return (new_particles, log_marginal_likelihood)
+
+
+def _linop_covariance(dist):
+  """LinearOperator backing Cov(dist), without unnecessary broadcasting."""
+  # This helps, even if we immediately call .to_dense(). Why?
+  # Simply calling dist.covariance() would broadcast up to the full batch shape.
+  # Instead, we want the shape to be that of the linear operator only.
+  # This (i) saves memory and (ii) allows operations done with this operator
+  # to be more efficient.
+  if hasattr(dist, 'cov_operator'):
+    cov = dist.cov_operator
+  else:
+    cov = dist.scale.matmul(dist.scale.H)
+  cov._is_positive_definite = True  # pylint: disable=protected-access
+  cov._is_self_adjoint = True  # pylint: disable=protected-access
+  return cov
 
 
 def _covariance(x, y=None):

@@ -10,6 +10,7 @@ import os.path as pth
 import os
 import tensorflow as tf
 import matplotlib.pyplot as plt
+tf.random.set_seed(123)
 
 os.environ["CUDA_VISIBLE_DEVICES"] = "0"
 # gpu = tf.config.list_physical_devices('GPU')
@@ -31,9 +32,10 @@ and bssm uses wrong observation noise, the authors use std instead of covariance
 """
 #TODO: re-compile bssm package
 
-class TestExtendedKalmanFilter:
+
+class TestUnscentedKalmanFilter:
     """
-    Test Extended Kalman Filter - ssm_nlg
+    Test Unscented Kalman Filter - ssm_nlg
     """
 
     def test_kffilter_TFP_arexp(self):
@@ -79,7 +81,6 @@ class TestExtendedKalmanFilter:
                                  obs_noise_std=0.1,
                                  nonlinear_type="nlg_ar_exp")
 
-        # infer_result = model_obj.unscented_Kalman_filter(observation, alpha=1e-2, beta=2., kappa=1.)
         infer_result = unscented_kalman_filter(model_obj, observation, alpha=1e-2, beta=2., kappa=1.)
 
         true_state = np.array(ro.r("x"))[..., None]

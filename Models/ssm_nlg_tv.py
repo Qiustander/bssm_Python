@@ -1,6 +1,6 @@
 import tensorflow as tf
 import tensorflow_probability as tfp
-from .nonlinear_function_type import nonlinear_fucntion
+from .nonlinear_function_type_tv import nonlinear_fucntion
 from tensorflow_probability.python.internal import dtype_util
 tfd = tfp.distributions
 from tensorflow_probability.python.internal import prefer_static as ps
@@ -33,18 +33,15 @@ class NonlinearSSM(object):
       ValueError: if components have different `num_timesteps`.
     """
 
-    # TODO: use decorator to wrap the time-varying function
     def __init__(self,
                  num_timesteps,
                  state_dim,
-                 observation_fn,
-                 observation_plusnoise_fn,
+                 observation_dist,
+                 transition_dist,
                  transition_fn,
-                 transition_plusnoise_fn,
+                 observation_fn,
                  observation_fn_grad,
                  transition_fn_grad,
-                 transition_noise_fn,
-                 observation_noise_fn,
                  initial_state_prior,
                  initial_step=0,
                  mask=None,
@@ -66,20 +63,14 @@ class NonlinearSSM(object):
 
             self._observation_fn_grad = observation_fn_grad
             self._transition_fn_grad = transition_fn_grad
-            self._observation_fn = observation_fn
-            self._observation_plusnoise_fn = observation_plusnoise_fn
+            self._observation_dist = observation_dist
+            self._transition_dist = transition_dist
             self._transition_fn = transition_fn
-            self._transition_plusnoise_fn = transition_plusnoise_fn
-            self._transition_noise_fn = transition_noise_fn
-            self._observation_noise_fn = observation_noise_fn
+            self._observation_fn = observation_fn
 
             dtype_list = [initial_state_prior,
-                          observation_fn,
-                          transition_fn,
-                          transition_plusnoise_fn,
-                          observation_plusnoise_fn,
-                          transition_noise_fn,
-                          observation_noise_fn,
+                          observation_dist,
+                          transition_dist,
                           observation_fn_grad,
                           transition_fn_grad]
 
@@ -106,28 +97,20 @@ class NonlinearSSM(object):
         return self._state_dim
 
     @property
-    def transition_fn(self):
-        return self._transition_fn
-
-    @property
-    def transition_noise_fn(self):
-        return self._transition_noise_fn
+    def transition_dist(self):
+        return self._transition_dist
 
     @property
     def observation_fn(self):
         return self._observation_fn
 
     @property
-    def observation_plusnoise_fn(self):
-        return self._observation_plusnoise_fn
+    def transition_fn(self):
+        return self._transition_fn
 
     @property
-    def transition_plusnoise_fn(self):
-        return self._transition_plusnoise_fn
-
-    @property
-    def observation_noise_fn(self):
-        return self._observation_noise_fn
+    def observation_dist(self):
+        return self._observation_dist
 
     @property
     def initial_state_prior(self):
