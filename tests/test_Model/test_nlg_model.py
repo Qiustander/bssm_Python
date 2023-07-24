@@ -18,6 +18,7 @@ class TestNonlinearModel:
         state_mtx_noise = np.random.randn(state_dim, state_dim)
         obs_mtx_noise = np.random.randn(observed_dim, observed_dim)
         test_state = tf.convert_to_tensor(np.random.randn(state_dim, ), dtype=tf.float32)
+        test_time_step = 10
 
         model_obj = NonlinearSSM.create_model(num_timesteps=num_timesteps,
                                               observation_size=observed_dim,
@@ -30,54 +31,33 @@ class TestNonlinearModel:
                                               obs_noise_std=obs_mtx_noise,
                                               dt=0.3,
                                               nonlinear_type="nlg_mv_model")
-        tf.debugging.assert_shapes([(model_obj.observation_fn(test_state), (observed_dim, )),
-                                    (model_obj.transition_fn(test_state), (state_dim,)),
-                                    (model_obj.transition_fn_grad(test_state), (state_dim, state_dim)),
-                                    (model_obj.observation_fn_grad(test_state), (observed_dim, state_dim)),
-                                    (model_obj.transition_noise_fn.sample(), (state_dim,)),
-                                    (model_obj.observation_noise_fn.sample(), (observed_dim,)),
-                                    (model_obj.observation_plusnoise_fn(test_state).sample(), (observed_dim,)),
-                                    (model_obj.transition_plusnoise_fn(test_state).sample(), (state_dim,)),
+        tf.debugging.assert_shapes([(model_obj.observation_fn(test_time_step, test_state), (observed_dim, )),
+                                    (model_obj.transition_fn(test_time_step, test_state), (state_dim,)),
+                                    (model_obj.transition_fn_grad(test_time_step, test_state), (state_dim, state_dim)),
+                                    (model_obj.observation_fn_grad(test_time_step, test_state), (observed_dim, state_dim)),
+                                    (model_obj.transition_dist(test_time_step, test_state).sample(), (state_dim,)),
+                                    (model_obj.observation_dist(test_time_step, test_state).sample(), (observed_dim,)),
                                     (model_obj.initial_state_prior.sample(), (state_dim,)),
                                     ])
 
-        dtype_tensor = model_obj.transition_noise_fn.mean()
+        dtype_tensor = model_obj.transition_dist(test_time_step, test_state).mean()
+
         tf.debugging.assert_equal(
-            model_obj.transition_noise_fn.mean(),
-            tf.convert_to_tensor(input_state, dtype=dtype_tensor.dtype),
+            model_obj.observation_dist(test_time_step, test_state).mean(),
+            tf.convert_to_tensor(model_obj.observation_fn(test_time_step, test_state) + input_obs, dtype=dtype_tensor.dtype),
         )
         tf.debugging.assert_equal(
-            model_obj.observation_noise_fn.mean(),
-            tf.convert_to_tensor(input_obs, dtype=dtype_tensor.dtype),
+            model_obj.transition_dist(test_time_step, test_state).mean(),
+            tf.convert_to_tensor(model_obj.transition_fn(test_time_step, test_state) + input_state, dtype=dtype_tensor.dtype),
         )
 
         tf.debugging.assert_near(
-            model_obj.transition_noise_fn.covariance(), tf.convert_to_tensor(
-                state_mtx_noise@ np.transpose(state_mtx_noise),
-                dtype=dtype_tensor.dtype),
-            atol=1e-4)
-        tf.debugging.assert_near(
-            model_obj.observation_noise_fn.covariance(), tf.convert_to_tensor(
-                obs_mtx_noise @ np.transpose(obs_mtx_noise), dtype=dtype_tensor.dtype),
-            atol=1e-4)
-
-        # Assert plusnoise_fn
-        tf.debugging.assert_equal(
-            model_obj.observation_plusnoise_fn(test_state).mean(),
-            tf.convert_to_tensor(model_obj.observation_fn(test_state), dtype=dtype_tensor.dtype),
-        )
-        tf.debugging.assert_equal(
-            model_obj.transition_plusnoise_fn(test_state).mean(),
-            tf.convert_to_tensor(model_obj.transition_fn(test_state), dtype=dtype_tensor.dtype),
-        )
-
-        tf.debugging.assert_near(
-            model_obj.transition_plusnoise_fn(test_state).covariance(), tf.convert_to_tensor(
+            model_obj.transition_dist(test_time_step, test_state).covariance(), tf.convert_to_tensor(
                 state_mtx_noise @ np.transpose(state_mtx_noise),
                 dtype=dtype_tensor.dtype),
             atol=1e-4)
         tf.debugging.assert_near(
-            model_obj.observation_plusnoise_fn(test_state).covariance(), tf.convert_to_tensor(
+            model_obj.observation_dist(test_time_step, test_state).covariance(), tf.convert_to_tensor(
                 obs_mtx_noise @ np.transpose(obs_mtx_noise), dtype=dtype_tensor.dtype),
             atol=1e-4)
 
@@ -93,6 +73,7 @@ class TestNonlinearModel:
         state_mtx_noise = np.random.randn(state_dim, state_dim)
         obs_mtx_noise = np.random.randn(observed_dim, observed_dim)
         test_state = tf.convert_to_tensor(np.random.randn(state_dim, ), dtype=tf.float32)
+        test_time_step = 10
 
         model_obj = NonlinearSSM.create_model(num_timesteps=num_timesteps,
                                               observation_size=observed_dim,
@@ -104,53 +85,32 @@ class TestNonlinearModel:
                                               input_state=input_state,
                                               obs_noise_std=obs_mtx_noise,
                                               nonlinear_type="nlg_sin_exp")
-        tf.debugging.assert_shapes([(model_obj.observation_fn(test_state), (observed_dim, )),
-                                    (model_obj.transition_fn(test_state), (state_dim,)),
-                                    (model_obj.transition_fn_grad(test_state), (state_dim, state_dim)),
-                                    (model_obj.observation_fn_grad(test_state), (observed_dim, state_dim)),
-                                    (model_obj.transition_noise_fn.sample(), (state_dim,)),
-                                    (model_obj.observation_noise_fn.sample(), (observed_dim,)),
-                                    (model_obj.observation_plusnoise_fn(test_state).sample(), (observed_dim,)),
-                                    (model_obj.transition_plusnoise_fn(test_state).sample(), (state_dim,)),
+        tf.debugging.assert_shapes([(model_obj.observation_fn(test_time_step, test_state), (observed_dim, )),
+                                    (model_obj.transition_fn(test_time_step, test_state), (state_dim,)),
+                                    (model_obj.transition_fn_grad(test_time_step, test_state), (state_dim, state_dim)),
+                                    (model_obj.observation_fn_grad(test_time_step, test_state), (observed_dim, state_dim)),
+                                    (model_obj.transition_dist(test_time_step, test_state).sample(), (state_dim,)),
+                                    (model_obj.observation_dist(test_time_step, test_state).sample(), (observed_dim,)),
                                     (model_obj.initial_state_prior.sample(), (state_dim,)),
                                     ])
 
         dtype_tensor = model_obj.transition_noise_fn.mean()
+
         tf.debugging.assert_equal(
-            model_obj.transition_noise_fn.mean(),
-            tf.convert_to_tensor(input_state, dtype=dtype_tensor.dtype),
+            model_obj.observation_dist(test_time_step, test_state).mean(),
+            tf.convert_to_tensor(model_obj.observation_fn(test_time_step, test_state) + input_obs, dtype=dtype_tensor.dtype),
         )
         tf.debugging.assert_equal(
-            model_obj.observation_noise_fn.mean(),
-            tf.convert_to_tensor(input_obs, dtype=dtype_tensor.dtype),
+            model_obj.transition_dist(test_time_step, test_state).mean(),
+            tf.convert_to_tensor(model_obj.transition_fn(test_time_step, test_state) + input_state, dtype=dtype_tensor.dtype),
         )
 
         tf.debugging.assert_near(
-            model_obj.transition_noise_fn.covariance(), tf.convert_to_tensor(
-                state_mtx_noise@ np.transpose(state_mtx_noise),
-                dtype=dtype_tensor.dtype),
-            atol=1e-4)
-        tf.debugging.assert_near(
-            model_obj.observation_noise_fn.covariance(), tf.convert_to_tensor(
-                obs_mtx_noise @ np.transpose(obs_mtx_noise), dtype=dtype_tensor.dtype),
-            atol=1e-4)
-
-        # Assert plusnoise_fn
-        tf.debugging.assert_equal(
-            model_obj.observation_plusnoise_fn(test_state).mean(),
-            tf.convert_to_tensor(model_obj.observation_fn(test_state), dtype=dtype_tensor.dtype),
-        )
-        tf.debugging.assert_equal(
-            model_obj.transition_plusnoise_fn(test_state).mean(),
-            tf.convert_to_tensor(model_obj.transition_fn(test_state), dtype=dtype_tensor.dtype),
-        )
-
-        tf.debugging.assert_near(
-            model_obj.transition_plusnoise_fn(test_state).covariance(), tf.convert_to_tensor(
+            model_obj.transition_dist(test_time_step, test_state).covariance(), tf.convert_to_tensor(
                 state_mtx_noise @ np.transpose(state_mtx_noise),
                 dtype=dtype_tensor.dtype),
             atol=1e-4)
         tf.debugging.assert_near(
-            model_obj.observation_plusnoise_fn(test_state).covariance(), tf.convert_to_tensor(
+            model_obj.observation_dist(test_time_step, test_state).covariance(), tf.convert_to_tensor(
                 obs_mtx_noise @ np.transpose(obs_mtx_noise), dtype=dtype_tensor.dtype),
             atol=1e-4)

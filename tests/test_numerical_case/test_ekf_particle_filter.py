@@ -3,7 +3,7 @@ import numpy as np
 import rpy2.robjects as ro
 from rpy2.robjects import numpy2ri
 from rpy2.robjects.packages import importr
-from Models.ssm_nlg_tv import NonlinearSSM
+from Models.ssm_nlg import NonlinearSSM
 from Inference.SMC.extend_kalman_particle_filter import extended_kalman_particle_filter
 from Models.check_argument import *
 import os.path as pth
@@ -45,9 +45,7 @@ class TestBootstrapParticleFilter:
           x[i] <- rnorm(1, mu * (1 - rho) + rho * x[i - 1], sigma_x)
         }
         y <- rnorm(n, exp(x), sigma_y)
-        setwd('../../bssm_R/src')
         pntrs <- cpp_example_model("nlg_ar_exp")
-        Rcpp::sourceCpp("model_ssm_nlg_edit.cpp")
 
         model_nlg <- ssm_nlg(y = y, a1 = pntrs$a1, P1 = pntrs$P1,
           Z = pntrs$Z_fn, H = pntrs$H_fn, T = pntrs$T_fn, R = pntrs$R_fn,
@@ -115,7 +113,7 @@ class TestBootstrapParticleFilter:
           log_prior_pdf = pntrs$log_prior_pdf,
           n_states = 1, n_etas = 1, state_names = "state")
 
-        infer_result <- bootstrap_filter(model_nlg, particles = 100)
+        infer_result <- bootstrap_filter(model_nlg, particles = 1000)
             """)
         r_result = ro.r("infer_result")
 
@@ -135,7 +133,7 @@ class TestBootstrapParticleFilter:
         infer_result = extended_kalman_particle_filter(model_obj, observation,
                                                        resample_fn='stratified',
                                                        resample_ess=1.0,
-                                                       num_particles=100)
+                                                       num_particles=1000)
 
         true_state = np.array(ro.r("x"))[..., None]
         plt.plot(infer_result[0].numpy(), color='blue', linewidth=1)

@@ -60,8 +60,8 @@ def extended_kalman_filter(ssm_model, observations):
     (filtered_means, filtered_covs,
      predicted_means, predicted_covs, log_marginal_likelihood) = forward_filter_pass(
         transition_fn_grad=ssm_model.transition_fn_grad,
-        transition_fn=ssm_model.transition_plusnoise_fn,
-        observation_fn=ssm_model.observation_plusnoise_fn,
+        transition_fn=ssm_model.transition_dist,
+        observation_fn=ssm_model.observation_dist,
         observation_fn_grad=ssm_model.observation_fn_grad,
         observations=observations,
         filtered_means=initial_state, filtered_covs=initial_covariance,
@@ -81,6 +81,8 @@ def forward_filter_pass(transition_fn_grad,
     """Run the forward pass in extended Kalman filter.
 
     Args:
+      filtered_means:
+      observations:
       transition_fn: a Python `callable` that accepts (batched) vectors of length
         `state_size`, and returns a `tfd.Distribution` instance, typically a
         `MultivariateNormal`, representing the state transition and covariance.
@@ -112,17 +114,18 @@ def forward_filter_pass(transition_fn_grad,
     dummy_zeros = tf.zeros(observations_shape[1:-1])
 
     (filtered_means, filtered_covs,
-     predicted_means, predicted_covs, log_marginal_likelihood) = tf.scan(update_step_fn,
+     predicted_means, predicted_covs, log_marginal_likelihood, time_step) = tf.scan(update_step_fn,
                                                                          elems=observations,
                                                                          initializer=(filtered_means,
                                                                                       filtered_covs,
                                                                                       predicted_means,
                                                                                       predicted_covs,
+                                                                                      dummy_zeros,
                                                                                       dummy_zeros))
 
     # one-step predicted mean and covariance
-    state_prior = transition_fn(filtered_means[-1, ...])
-    current_jacobian = transition_fn_grad(filtered_means[-1, ...])
+    state_prior = transition_fn(time_step[-1], filtered_means[-1, ...])
+    current_jacobian = transition_fn_grad(time_step[-1], filtered_means[-1, ...])
     last_cov = (tf.matmul(
         current_jacobian,
         tf.matmul(filtered_covs[-1, ...], current_jacobian, transpose_b=True)) +
@@ -159,17 +162,19 @@ def build_forward_filter_step(transition_fn_grad,
          filtered_cov,
          predicted_mean,
          predicted_cov,
-         log_marginal_likelihood) = _extended_kalman_filter_one_step(state, observations,
-                                                                     transition_fn=transition_fn,
-                                                                     observation_fn=observation_fn,
-                                                                     transition_jacobian_fn=transition_fn_grad,
-                                                                     observation_jacobian_fn=observation_fn_grad)
+         log_marginal_likelihood,
+         time_step) = _extended_kalman_filter_one_step(state, observations,
+                                                       transition_fn=transition_fn,
+                                                       observation_fn=observation_fn,
+                                                       transition_jacobian_fn=transition_fn_grad,
+                                                       observation_jacobian_fn=observation_fn_grad)
 
         return (filtered_mean,
                 filtered_cov,
                 predicted_mean,
                 predicted_cov,
-                log_marginal_likelihood)
+                log_marginal_likelihood,
+                time_step)
 
     return forward_pass_step
 
@@ -212,8 +217,9 @@ def _extended_kalman_filter_one_step(
 
     current_state = state[0]
     current_covariance = state[1]
-    current_jacobian = transition_jacobian_fn(current_state)
-    state_prior = transition_fn(current_state)
+    time_step = state[-1]
+    current_jacobian = transition_jacobian_fn(time_step, current_state)
+    state_prior = transition_fn(time_step, current_state)
 
     predicted_cov = (tf.matmul(
         current_jacobian,
@@ -221,11 +227,11 @@ def _extended_kalman_filter_one_step(
                      state_prior.covariance())
     predicted_mean = state_prior.mean()
 
-    observation_dist = observation_fn(predicted_mean)
+    observation_dist = observation_fn(time_step, predicted_mean)
     observation_mean = observation_dist.mean()
     observation_cov = observation_dist.covariance()
 
-    predicted_jacobian = observation_jacobian_fn(predicted_mean)
+    predicted_jacobian = observation_jacobian_fn(time_step, predicted_mean)
     tmp_obs_cov = tf.matmul(predicted_jacobian, predicted_cov)
     residual_covariance = tf.matmul(
         predicted_jacobian, tmp_obs_cov, transpose_b=True) + observation_cov
@@ -269,4 +275,5 @@ def _extended_kalman_filter_one_step(
             filtered_cov,
             predicted_mean,
             predicted_cov,
-            log_marginal_likelihood)
+            log_marginal_likelihood,
+            time_step + 1)

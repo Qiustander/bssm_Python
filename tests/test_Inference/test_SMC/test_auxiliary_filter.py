@@ -3,7 +3,7 @@ import tensorflow as tf
 import tensorflow_probability as tfp
 import numpy as np
 from Models.ssm_nlg import NonlinearSSM
-from Inference.Kalman.extended_kalman_filter import extended_kalman_filter
+from Inference.SMC.auxiliary_particle_filter import auxiliary_particle_filter
 from Models.check_argument import *
 import os.path as pth
 import os
@@ -96,7 +96,9 @@ class TestExtendKalmanFilter:
                                     (infer_result[3], (obs_len+1, state_dim, state_dim)),# predicted_covs
                                         ])
 
-def debug_plot(tfp_result, true_state):
+def debug_plot(tfp_result, r_result, true_state):
     plt.plot(tfp_result, color='blue', linewidth=1)
+    plt.plot(r_result, color='green', linewidth=1)
     plt.plot(true_state, '-.', color='red', linewidth=1)
     plt.show()
+    print(f'Max error of R and TFP: {np.max(np.abs(tfp_result - r_result))}')

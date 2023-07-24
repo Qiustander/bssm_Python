@@ -1,6 +1,6 @@
 import tensorflow as tf
 import tensorflow_probability as tfp
-from .nonlinear_function_type import nonlinear_fucntion
+from .nonlinear_function_type_nontv import nonlinear_fucntion
 from tensorflow_probability.python.distributions import distribution
 from tensorflow_probability.python.internal import reparameterization
 from tensorflow_probability.python.internal import dtype_util

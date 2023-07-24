@@ -74,7 +74,8 @@ def bootstrap_particle_filter(ssm_model,
         # state_dim = ssm_model.initial_state_prior.sample().shape[0]
         filtered_mean, predicted_mean, \
             filtered_variance, predicted_variance = posterior_mean_var(particles,
-                                                                       log_weights)
+                                                                       log_weights,
+                                                                       tf.get_static_value(tf.shape(observations))[0])
         return return_results(filtered_mean=filtered_mean, predicted_mean=predicted_mean,
                               filtered_variance=filtered_variance, predicted_variance=predicted_variance,
                               incremental_log_marginal_likelihoods=incremental_log_marginal_likelihoods,

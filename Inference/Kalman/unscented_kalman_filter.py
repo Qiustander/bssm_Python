@@ -50,14 +50,15 @@ def unscented_kalman_filter(ssm_model, observations, alpha=1e-2, beta=2., kappa=
 
     (filtered_means, filtered_covs,
      predicted_means, predicted_covs, log_marginal_likelihood) = forward_filter_pass(
-        transition_fn=ssm_model.transition_fn,
-        transition_noise=ssm_model.transition_noise_fn.covariance(),
-        observation_fn=ssm_model.observation_fn,
-        observation_noise=ssm_model.observation_noise_fn.covariance(),
+        transition_fn=ssm_model.transition_dist,
+        transition_noise=ssm_model.transition_fn,
+        observation_fn=ssm_model.observation_dist,
+        observation_noise=ssm_model.observation_fn,
         observations=observations,
         filtered_means=initial_state, filtered_covs=initial_covariance,
         predicted_means=initial_state, predicted_covs=initial_covariance,
-        scaling_parameters=(alpha, beta, kappa, ssm_model.state_dim))
+        scaling_parameters=(alpha, beta, tf.cast(kappa, dtype=observations.dtype), ssm_model.state_dim
+                                                        ))
 
     return (filtered_means, filtered_covs,
             predicted_means, predicted_covs, log_marginal_likelihood)
@@ -103,13 +104,14 @@ def forward_filter_pass(transition_fn,
     dummy_zeros = tf.zeros(observations_shape[1:-1])
 
     (filtered_means, filtered_covs,
-     predicted_means, predicted_covs, log_marginal_likelihood) = tf.scan(update_step_fn,
-                                                                         elems=observations,
-                                                                         initializer=(filtered_means,
-                                                                                      filtered_covs,
-                                                                                      predicted_means,
-                                                                                      predicted_covs,
-                                                                                      dummy_zeros))
+     predicted_means, predicted_covs, log_marginal_likelihood, time_step) = tf.scan(update_step_fn,
+                                                                                    elems=observations,
+                                                                                    initializer=(filtered_means,
+                                                                                                 filtered_covs,
+                                                                                                 predicted_means,
+                                                                                                 predicted_covs,
+                                                                                                 dummy_zeros,
+                                                                                                 dummy_zeros))
 
     return (filtered_means, filtered_covs,
             predicted_means, predicted_covs, log_marginal_likelihood)
@@ -129,21 +131,21 @@ def build_forward_filter_step(transition_fn,
       from timestep `t` to `t-1`.
     """
     alpha, beta, kappa, state_dim = scaling_parameters
-    lamda = alpha ** 2 * (tf.cast(state_dim, dtype=observation_noise.dtype) + kappa) - tf.cast(state_dim, dtype=observation_noise.dtype)
     num_sigma = 2 * state_dim + 1
+    state_dim = tf.cast(state_dim, dtype=kappa.dtype)
+    lamda = alpha ** 2 * (state_dim + kappa) - state_dim
 
     # determinstic sigma points
     # sigma_weight_mean = tf.Variable(trainable=False)
-    sigma_weight_mean = tf.ones((num_sigma, 1)) / (2. * (lamda + tf.cast(state_dim, dtype=observation_noise.dtype)))
-    sigma_weight_mean = tf.ones((num_sigma, 1)) / (2. * (lamda + tf.cast(state_dim, dtype=observation_noise.dtype)))
+    sigma_weight_mean = tf.ones((num_sigma, 1)) / (2. * (lamda + state_dim))
+    sigma_weight_mean = tf.ones((num_sigma, 1)) / (2. * (lamda + state_dim))
     sigma_weight_mean = tf.tensor_scatter_nd_update(
-    sigma_weight_mean, [[0, 0]], [lamda / (lamda + tf.cast(state_dim, dtype=observation_noise.dtype))], name=None
-                    )
+        sigma_weight_mean, [[0, 0]], [lamda / (lamda + state_dim)], name=None
+    )
     sigma_weight_cov = tf.identity(sigma_weight_mean)
     sigma_weight_cov = tf.tensor_scatter_nd_update(
-    sigma_weight_cov, [[0, 0]], sigma_weight_cov[0] + 1. - alpha ** 2 + beta, name=None
-                    )
-
+        sigma_weight_cov, [[0, 0]], sigma_weight_cov[0] + 1. - alpha ** 2 + beta, name=None
+    )
 
     def forward_pass_step(state,
                           observations):
@@ -153,21 +155,23 @@ def build_forward_filter_step(transition_fn,
          filtered_cov,
          predicted_mean,
          predicted_cov,
-         log_marginal_likelihood) = _unscented_kalman_filter_one_step(state, observations,
-                                                                     transition_fn=transition_fn,
-                                                                     transition_noise=transition_noise,
-                                                                     observation_fn=observation_fn,
-                                                                     observation_noise=observation_noise,
-                                                                     sigma_weight_mean=sigma_weight_mean,
-                                                                     sigma_weight_cov=sigma_weight_cov,
-                                                                     num_sigma=num_sigma,
-                                                                     lamda=lamda)
+         log_marginal_likelihood,
+         time_step) = _unscented_kalman_filter_one_step(state, observations,
+                                                        transition_fn=transition_fn,
+                                                        transition_noise=transition_noise,
+                                                        observation_fn=observation_fn,
+                                                        observation_noise=observation_noise,
+                                                        sigma_weight_mean=sigma_weight_mean,
+                                                        sigma_weight_cov=sigma_weight_cov,
+                                                        num_sigma=num_sigma,
+                                                        lamda=lamda)
 
         return (filtered_mean,
                 filtered_cov,
                 predicted_mean,
                 predicted_cov,
-                log_marginal_likelihood)
+                log_marginal_likelihood,
+                time_step)
 
     return forward_pass_step
 
@@ -205,27 +209,28 @@ def _unscented_kalman_filter_one_step(
             log_marginal_likelihood
     """
     # If observations are scalar, we can avoid some matrix ops.
-    current_state, current_cov, predict_state, predict_cov, _ = state
+    current_state, current_cov, predict_state, predict_cov, _, time_step = state
     observation_size_is_static_and_scalar = (observation.shape[-1] == 1)
 
     chol_cov_mtx = tf.linalg.cholesky(predict_cov)  # lower triangular L
     indices = tf.range(num_sigma)
     sigma_points_x = tf.vectorized_map(
-        lambda x: _sigma_samples(predict_state, chol_cov_mtx, tf.sqrt(lamda + tf.cast((num_sigma-1)//2,
-                                                                              dtype=predict_state.dtype)), x),
+        lambda x: _sigma_samples(predict_state, chol_cov_mtx, tf.sqrt(lamda + tf.cast((num_sigma - 1) // 2,
+                                                                                      dtype=predict_state.dtype)), x),
         indices)
 
     ############### Estimation already mu_t|t-1
     sigma_y = tf.vectorized_map(lambda x:
-                                observation_fn(x), sigma_points_x)  # 2M+1 xM
+                                observation_fn(time_step, x).mean(), sigma_points_x)  # 2M+1 xM
     estimated_y = tf.squeeze(tf.transpose(sigma_y) @ sigma_weight_mean, axis=-1)
 
     current_variance = _weight_covariance(sigma_y, weights_mean=sigma_weight_mean,
-                                               weights_cov=sigma_weight_cov) + observation_noise
+                                          weights_cov=sigma_weight_cov) + observation_fn(time_step,
+                                                                                         sigma_points_x[0]).covariance()
     current_covariance = _weight_covariance(sigma_y, sigma_points_x - predict_state,
-                                                 weights_mean=sigma_weight_mean,
-                                                 weights_cov=sigma_weight_cov,
-                                                 need_mean=False)
+                                            weights_mean=sigma_weight_mean,
+                                            weights_cov=sigma_weight_cov,
+                                            need_mean=False)
 
     ########### Correction mu_t|t
     gamma_t = observation - estimated_y
@@ -244,15 +249,18 @@ def _unscented_kalman_filter_one_step(
     chol_next_state = tf.linalg.cholesky(filtered_cov)
     sigma_points_pred = tf.vectorized_map(lambda x:
                                           _sigma_samples(filtered_state, chol_next_state,
-                                                              tf.sqrt(lamda + tf.cast((num_sigma-1)//2,
-                                                                              dtype=predict_state.dtype)), x), indices)
+                                                         tf.sqrt(lamda + tf.cast((num_sigma - 1) // 2,
+                                                                                 dtype=predict_state.dtype)), x),
+                                          indices)
 
     sigma_x_pred = tf.vectorized_map(lambda x:
-                                     transition_fn(x), tf.stack(sigma_points_pred))
+                                     transition_fn(time_step, x).mean(), tf.stack(sigma_points_pred))
     predict_state = tf.squeeze(tf.transpose(sigma_x_pred) @ sigma_weight_mean, -1)  # s
     predict_cov = _weight_covariance(sigma_x_pred, weights_mean=sigma_weight_mean,
-                                          weights_cov=sigma_weight_cov) + transition_noise
+                                     weights_cov=sigma_weight_cov) + transition_fn(time_step,
+                                                                                   sigma_points_pred[0]).covariance()
 
+    # TODO: add the likelihood
     # log_marginal_likelihood = predictive_dist.log_prob(observation)
     # chol_noise = tf.linalg.cholesky(observation_noise)
     # inv_noise = tf.linalg.inv(chol_noise)
@@ -266,7 +274,8 @@ def _unscented_kalman_filter_one_step(
             filtered_cov,
             predict_state,
             predict_cov,
-            log_marginal_likelihood)
+            log_marginal_likelihood,
+            time_step + 1)
 
 
 # Sample covariance. Handles differing shapes.

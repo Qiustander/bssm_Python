@@ -13,22 +13,22 @@ Extended Kalman particle filter
 
 return_results = namedtuple(
     'EKPFResult', ['filtered_mean', 'predicted_mean',
-                        'filtered_variance', 'predicted_variance',
-                        'incremental_log_marginal_likelihoods', 'particles',
-                        'log_weights', 'parent_indices', 'accumulated_log_marginal_likelihood'])
+                   'filtered_variance', 'predicted_variance',
+                   'incremental_log_marginal_likelihoods', 'particles',
+                   'log_weights', 'parent_indices', 'accumulated_log_marginal_likelihood'])
 
 
 def extended_kalman_particle_filter(ssm_model,
-                              observations,
-                              num_particles,
-                              initial_state_proposal=None,
-                              proposal_fn=extended_kalman_particle_step,
-                              resample_fn='stratified',
-                              resample_ess=0.5,
-                              unbiased_gradients=True,
-                              num_transitions_per_observation=1,
-                              seed=None,
-                              name=None):
+                                    observations,
+                                    num_particles,
+                                    initial_state_proposal=extended_kalman_particle_initial,
+                                    proposal_fn=extended_kalman_particle_step,
+                                    resample_fn='stratified',
+                                    resample_ess=0.5,
+                                    unbiased_gradients=True,
+                                    num_transitions_per_observation=1,
+                                    seed=None,
+                                    name=None):
     """
 
     Args:
@@ -78,11 +78,10 @@ def extended_kalman_particle_filter(ssm_model,
         # state_dim = ssm_model.initial_state_prior.sample().shape[0]
         filtered_mean, predicted_mean, \
             filtered_variance, predicted_variance = posterior_mean_var(particles,
-                                                                       log_weights)
+                                                                       log_weights,
+                                                                       tf.get_static_value(tf.shape(observations))[0])
         return return_results(filtered_mean=filtered_mean, predicted_mean=predicted_mean,
                               filtered_variance=filtered_variance, predicted_variance=predicted_variance,
                               incremental_log_marginal_likelihoods=incremental_log_marginal_likelihoods,
                               accumulated_log_marginal_likelihood=accumulated_log_marginal_likelihood,
                               particles=particles, log_weights=log_weights, parent_indices=parent_indices)
-
-

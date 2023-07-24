@@ -2,6 +2,7 @@ import tensorflow as tf
 import tensorflow_probability as tfp
 from .nonlinear_function_type import nonlinear_fucntion
 from tensorflow_probability.python.internal import dtype_util
+
 tfd = tfp.distributions
 from tensorflow_probability.python.internal import prefer_static as ps
 from runtime_wrap import get_runtime
@@ -33,29 +34,27 @@ class NonlinearSSM(object):
       ValueError: if components have different `num_timesteps`.
     """
 
-    # TODO: use decorator to wrap the time-varying function
     def __init__(self,
                  num_timesteps,
                  state_dim,
-                 observation_fn,
-                 observation_plusnoise_fn,
+                 observation_dist,
+                 transition_dist,
                  transition_fn,
-                 transition_plusnoise_fn,
+                 observation_fn,
                  observation_fn_grad,
                  transition_fn_grad,
-                 transition_noise_fn,
-                 observation_noise_fn,
                  initial_state_prior,
                  initial_step=0,
                  mask=None,
                  experimental_parallelize=False,
                  validate_args=False,
                  allow_nan_stats=True,
+                 proposal_dist=None,
+                 auxiliary_fn=None,
+                 psi_two_filter_fn=None,
                  name='NonlinearSSM'):
-
         parameters = dict(locals())
         with tf.name_scope(name or 'NonlinearSSM') as name:
-
             self._num_timesteps = ps.convert_to_shape_tensor(
                 num_timesteps, name='num_timesteps')
             self._state_dim = ps.convert_to_shape_tensor(
@@ -66,20 +65,17 @@ class NonlinearSSM(object):
 
             self._observation_fn_grad = observation_fn_grad
             self._transition_fn_grad = transition_fn_grad
-            self._observation_fn = observation_fn
-            self._observation_plusnoise_fn = observation_plusnoise_fn
+            self._observation_dist = observation_dist
+            self._transition_dist = transition_dist
             self._transition_fn = transition_fn
-            self._transition_plusnoise_fn = transition_plusnoise_fn
-            self._transition_noise_fn = transition_noise_fn
-            self._observation_noise_fn = observation_noise_fn
+            self._observation_fn = observation_fn
+            self._proposal_dist = proposal_dist
+            self._auxiliary_fn = auxiliary_fn
+            self._psi_two_filter_fn = psi_two_filter_fn
 
             dtype_list = [initial_state_prior,
-                          observation_fn,
-                          transition_fn,
-                          transition_plusnoise_fn,
-                          observation_plusnoise_fn,
-                          transition_noise_fn,
-                          observation_noise_fn,
+                          observation_dist,
+                          transition_dist,
                           observation_fn_grad,
                           transition_fn_grad]
 
@@ -106,63 +102,109 @@ class NonlinearSSM(object):
         return self._state_dim
 
     @property
-    def transition_fn(self):
-        return self._transition_fn
-
-    @property
-    def transition_noise_fn(self):
-        return self._transition_noise_fn
+    def transition_dist(self):
+        return self._transition_dist
 
     @property
     def observation_fn(self):
         return self._observation_fn
 
     @property
-    def observation_plusnoise_fn(self):
-        return self._observation_plusnoise_fn
+    def transition_fn(self):
+        return self._transition_fn
 
     @property
-    def transition_plusnoise_fn(self):
-        return self._transition_plusnoise_fn
-
-    @property
-    def observation_noise_fn(self):
-        return self._observation_noise_fn
+    def observation_dist(self):
+        return self._observation_dist
 
     @property
     def initial_state_prior(self):
         return self._initial_state_prior
 
+    @property
+    def auxiliary_fn(self):
+        """Auxiliary function for the Auxiliary Particle Filter, Default None
+        """
+        return self._auxiliary_fn
+
+    @property
+    def psi_two_filter_fn(self):
+        """Artificial distribution for the generalized two-filter Particle smoother, Default None
+        """
+        return self._psi_two_filter_fn
+
+    @property
+    def proposal_dist(self):
+        """Proposal distribution for the MCMC and SMC, Default None
+        """
+        return self._proposal_dist
+
+    def simulate(self, len_time_step, seed=None):
+        """
+        Simulate true state and observations
+        Args:
+            seed: generated seed
+            len_time_step: time length
+        Returns:
+            observations
+        """
+        # TODO: add seed
+        seed = seed
+
+        def _generate_signal(transition_fn, observation_fn):
+            def _inner_wrap(gen_data, current_step):
+                last_state, last_observation = gen_data
+
+                current_state = transition_fn(current_step, last_state).sample()
+                current_observation = observation_fn(current_step, current_state).sample()
+                return current_state, current_observation
+
+            return _inner_wrap
+
+        gen_data = _generate_signal(self._transition_dist, self._observation_dist)
+
+        initial_state = self._initial_state_prior.sample()
+        init_obs = self._observation_dist(0, initial_state).sample()
+        overall_step = tf.range(1, len_time_step)
+
+        true_state, observations = tf.scan(gen_data,
+                                           elems=overall_step,
+                                           initializer=(initial_state,
+                                                        init_obs),
+                                           )
+        true_state = tf.concat([initial_state[tf.newaxis], true_state], axis=0)
+        observations = tf.concat([init_obs[tf.newaxis], observations], axis=0)
+
+        return true_state, observations
 
     @classmethod
     def create_model(cls,
-                 num_timesteps,
-                 observation_size,
-                 latent_size,
-                 initial_state_mean,
-                 initial_state_cov,
-                 state_noise_std,
-                 obs_noise_std,
-                 nonlinear_type,
-                rho_state=None,
-                mu_state=None,
-                input_state=None,
-                input_obs=None,
-                dtype=tf.float32,
-                 **kwargs):
+                     num_timesteps,
+                     observation_size,
+                     latent_size,
+                     initial_state_mean,
+                     initial_state_cov,
+                     state_noise_std,
+                     obs_noise_std,
+                     nonlinear_type,
+                     rho_state=None,
+                     mu_state=None,
+                     input_state=None,
+                     input_obs=None,
+                     dtype=tf.float32,
+                     **kwargs):
         return cls(**nonlinear_fucntion(
-                    function_type=nonlinear_type,
-                    obs_len=num_timesteps,
-                    obs_dim=observation_size,
-                    state_dim=latent_size,
-                    obs_noise=obs_noise_std,
-                    state_noise=state_noise_std,
-                    prior_mean=initial_state_mean,
-                    prior_cov=initial_state_cov,
-                    input_state=input_state,
-                    input_obs=input_obs,
-                    rho_state=rho_state,
-                    mu_state=mu_state,
-                    dtype=dtype,
-                            **kwargs))
-
+            function_type=nonlinear_type,
+            obs_len=num_timesteps,
+            obs_dim=observation_size,
+            state_dim=latent_size,
+            obs_noise=obs_noise_std,
+            state_noise=state_noise_std,
+            prior_mean=initial_state_mean,
+            prior_cov=initial_state_cov,
+            input_state=input_state,
+            input_obs=input_obs,
+            rho_state=rho_state,
+            mu_state=mu_state,
+            dtype=dtype,
+            **kwargs))

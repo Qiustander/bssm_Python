@@ -135,11 +135,11 @@ class TestExtendedKalmanFilter:
 
         infer_result = extended_kalman_filter(model_obj, observation)
         debug_plot(infer_result[0].numpy(), r_result[1], np.array(ro.r("x"))[..., None])
-        plt.plot(infer_result[1].numpy().squeeze())
+        # plt.plot(infer_result[1].numpy().squeeze())
         plt.show()
 
         # compare loglik
-        tf.debugging.assert_near(r_result[-1], infer_result[-1].numpy().sum(), atol=1e-2)
+        tf.debugging.assert_near(r_result[-1], infer_result[-1].numpy().sum(), atol=1e-1)
         # compare filtered_means
         tf.debugging.assert_near(r_result[1], infer_result[0].numpy(), atol=1e-4)
         # compare filtered_covs

@@ -11,16 +11,18 @@ Auxiliary particle filter
 
 return_results = namedtuple(
     'APFResult', ['filtered_mean', 'predicted_mean',
-                        'filtered_variance', 'predicted_variance',
-                        'incremental_log_marginal_likelihoods', 'particles',
-                        'log_weights', 'parent_indices', 'accumulated_log_marginal_likelihood'])
+                  'filtered_variance', 'predicted_variance',
+                  'incremental_log_marginal_likelihoods', 'particles',
+                  'log_weights', 'parent_indices', 'accumulated_log_marginal_likelihood'])
 
 
 def auxiliary_particle_filter(ssm_model,
                               observations,
                               num_particles,
+                              auxiliary_fn=None,
+                              is_gudied=False,
                               initial_state_proposal=None,
-                              proposal_fn='proposal',
+                              proposal_fn=None, # Could use other proposal function
                               resample_fn='stratified',
                               resample_ess=0.5,
                               unbiased_gradients=True,
@@ -49,6 +51,10 @@ def auxiliary_particle_filter(ssm_model,
     with tf.name_scope(name or 'auxiliary_particle_filter') as name:
         pf_seed, resample_seed = samplers.split_seed(
             seed)
+
+        if not auxiliary_fn and not is_gudied:
+            raise NotImplementedError('No Auxiliary Function!')
+
         (particles,  # num_time_step, particle_num, state_dim
          log_weights,
          parent_indices,
@@ -56,6 +62,7 @@ def auxiliary_particle_filter(ssm_model,
          accumulated_log_marginal_likelihood) = particle_filter(
             observations=observations,
             initial_state_prior=ssm_model.initial_state_prior,
+            auxiliary_fn=auxiliary_fn,
             transition_fn=ssm_model.transition_dist,
             observation_fn=ssm_model.observation_dist,
             num_particles=num_particles,
@@ -70,10 +77,10 @@ def auxiliary_particle_filter(ssm_model,
             seed=pf_seed,
             name=name)
 
-        # state_dim = ssm_model.initial_state_prior.sample().shape[0]
         filtered_mean, predicted_mean, \
             filtered_variance, predicted_variance = posterior_mean_var(particles,
-                                                                       log_weights)
+                                                                       log_weights,
+                                                                       tf.get_static_value(tf.shape(observations))[0])
         return return_results(filtered_mean=filtered_mean, predicted_mean=predicted_mean,
                               filtered_variance=filtered_variance, predicted_variance=predicted_variance,
                               incremental_log_marginal_likelihoods=incremental_log_marginal_likelihoods,

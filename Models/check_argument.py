@@ -1,5 +1,4 @@
 import numpy as np
-from .prior import is_prior, is_prior_list
 
 
 def check_y(x, fill_missing=0., filling=True):
@@ -122,11 +121,6 @@ def check_rho(x):
 def check_phi(x):
     if x < 0:
         raise ValueError("Parameter 'phi' must be non-negative.")
-
-
-def check_prior(x, name):
-    if not is_prior(x) or is_prior_list(x):
-        raise ValueError(f"{name} must belong 'bssm_prior' or 'bssm_prior_list'.")
 
 
 def check_prop(x):
@@ -517,49 +511,6 @@ def check_positive_const(x, y, multivariate=False):
         raise ValueError("Argument 'u' must contain only finite values.")
 
     return x
-
-
-def create_regression(beta, xreg, n):
-    """
-
-    Args:
-        beta: an object belong to Prior Class
-        xreg:
-        n:
-
-    Returns:
-
-    """
-
-    if xreg is None:
-        return {'xreg': np.zeros((0, 0)), 'coefs': np.array([0]), 'beta': None}
-    else:
-        if beta is None:
-            raise ValueError("No prior defined for beta.")
-        else:
-            if not (is_prior(beta) or is_prior_list(beta)):
-                raise ValueError("Prior for beta must belong to 'bssm_prior' or 'bssm_prior_list.")
-            if xreg.shape == (len(xreg),):
-                if len(xreg) == n:
-                    xreg = xreg.reshape((n, 1))
-                else:
-                    raise ValueError("Length of xreg is not equal to the length of the series y.")
-
-            check_xreg(xreg, n)
-            nx = xreg.shape[1]
-
-            if nx == 1 and is_prior_list(beta):
-                beta = beta[0]
-
-            if nx > 1:
-                coefs = np.array([b['init'] for b in beta])
-            else:
-                coefs = beta.init
-
-            check_beta(coefs, nx)
-
-        return {'xreg': xreg, 'coefs': coefs, 'beta': beta}
-
 
 # Check model inference
 def check_missingness(x):

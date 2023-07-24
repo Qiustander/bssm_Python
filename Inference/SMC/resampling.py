@@ -16,7 +16,7 @@ __all__ = [
 
 def resample(particles, log_weights, resample_fn, target_log_weights=None,
              seed=None):
-  """Resamples the current particles according to provided weights.
+    """Resamples the current particles according to provided weights.
 
   Args:
     particles: Nested structure of `Tensor`s each of shape
@@ -49,25 +49,25 @@ def resample(particles, log_weights, resample_fn, target_log_weights=None,
       If no `target_log_weights` was specified, the log weights after
       resampling are uniformly equal to `-log(num_particles)`.
   """
-  with tf.name_scope('resample'):
-    num_particles = ps.size0(log_weights)
-    log_num_particles = tf.math.log(tf.cast(num_particles, log_weights.dtype))
+    with tf.name_scope('resample'):
+        num_particles = ps.size0(log_weights)
+        log_num_particles = tf.math.log(tf.cast(num_particles, log_weights.dtype))
 
-    # Normalize the weights and sample the ancestral indices.
-    log_probs = tf.math.log_softmax(log_weights, axis=0)
-    resampled_indices = resample_fn(log_probs, num_particles, seed=seed)
+        # Normalize the weights and sample the ancestral indices.
+        log_probs = tf.math.log_softmax(log_weights, axis=0)
+        resampled_indices = resample_fn(log_probs, num_particles, seed=seed)
 
-    gather_ancestors = lambda x: (  # pylint: disable=g-long-lambda
-        mcmc_util.index_remapping_gather(x, resampled_indices, axis=0))
-    resampled_particles = tf.nest.map_structure(gather_ancestors, particles)
-    if target_log_weights is None:
-      log_weights_after_resampling = tf.fill(ps.shape(log_weights),
-                                             -log_num_particles)
-    else:
-      importance_weights = target_log_weights - log_probs - log_num_particles
-      log_weights_after_resampling = tf.nest.map_structure(
-          gather_ancestors, importance_weights)
-  return resampled_particles, resampled_indices, log_weights_after_resampling
+        gather_ancestors = lambda x: (  # pylint: disable=g-long-lambda
+            mcmc_util.index_remapping_gather(x, resampled_indices, axis=0))
+        resampled_particles = tf.nest.map_structure(gather_ancestors, particles)
+        if target_log_weights is None:
+            log_weights_after_resampling = tf.fill(ps.shape(log_weights),
+                                                   -log_num_particles)
+        else:
+            importance_weights = target_log_weights - log_probs - log_num_particles
+            log_weights_after_resampling = tf.nest.map_structure(
+                gather_ancestors, importance_weights)
+    return resampled_particles, resampled_indices, log_weights_after_resampling
 
 
 def _resample_residual(weights, resample_num, seed=None, name=None):
@@ -101,12 +101,11 @@ def _resample_residual(weights, resample_num, seed=None, name=None):
        93(443):1032–1044, 1998.
     """
     with tf.name_scope(name or 'resample_resiudual'):
-
         weights = tf.convert_to_tensor(weights, dtype_hint=tf.float32)
         if not resample_num:
             resample_num = ps.shape(weights)[-1]
 
-        #deterministic sampling
+        # deterministic sampling
         weights_int = resample_num * weights
         floor_weight = tf.floor(weights_int)
         res_weight = weights_int - floor_weight
@@ -162,10 +161,9 @@ def _resample_stratified(weights, resample_num, seed=None, name=None):
             num=resample_num) + offsets
 
         # Resampling
-        # TODO: would weights would be multiple dimensions?
         cdf_weights = tf.concat([tf.math.cumsum(weights, axis=-1)[..., :-1],
-                               tf.ones([1,], dtype=weights.dtype)],
-                               axis=-1)
+                                 tf.ones([1, ], dtype=weights.dtype)],
+                                axis=-1)
 
         resample_index = tf.searchsorted(cdf_weights, resampling_space)
 
@@ -214,8 +212,8 @@ def _resample_systematic(weights, resample_num, seed=None, name=None):
         # Resampling
 
         cdf_weights = tf.concat([tf.math.cumsum(weights, axis=-1)[..., :-1],
-                               tf.ones([1,], dtype=weights.dtype)],
-                               axis=-1)
+                                 tf.ones([1, ], dtype=weights.dtype)],
+                                axis=-1)
 
         # already batch based method
         resample_index = tf.searchsorted(cdf_weights, resampling_space)
@@ -253,11 +251,11 @@ def _resample_multinomial(weights, resample_num, seed=None, name=None):
             resample_num = ps.shape(weights)[-1]
 
         searchpoints = uniform.Uniform(low=ps.cast(0., dtype=weights.dtype),
-                                  high=ps.cast(1., dtype=weights.dtype)).sample(resample_num, seed=seed)
+                                       high=ps.cast(1., dtype=weights.dtype)).sample(resample_num, seed=seed)
 
         cdf_weights = tf.concat([tf.math.cumsum(weights, axis=-1)[..., :-1],
-                               tf.ones([1,], dtype=weights.dtype)],
-                               axis=-1)
+                                 tf.ones([1, ], dtype=weights.dtype)],
+                                axis=-1)
 
         resample_index = tf.searchsorted(cdf_weights, searchpoints)
 

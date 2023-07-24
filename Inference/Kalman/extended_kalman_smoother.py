@@ -7,7 +7,7 @@ from .extended_kalman_filter import extended_kalman_filter
 tfd = tfp.distributions
 
 
-@tf.function
+# @tf.function
 def extended_kalman_smoother(ssm_model, observations):
     """ Conduct the extended Kalman Smoother
     Args:
@@ -25,7 +25,7 @@ def extended_kalman_smoother(ssm_model, observations):
     """
 
     (filtered_means, filtered_covs,
-     predicted_means, predicted_covs, _, ) = extended_kalman_filter(
+     predicted_means, predicted_covs, _,) = extended_kalman_filter(
         ssm_model,
         observations
     )
@@ -84,16 +84,17 @@ def backward_smoothing_pass(transition_fn_grad, filtered_means, filtered_covs,
 
     initial_backward_mean = predicted_means[-1, ...]
     initial_backward_cov = predicted_covs[-1, ...]
+    last_time_step = tf.ones([filtered_means.shape[0]])
 
-    (smoothed_means, smoothed_covs) = tf.scan(update_step_fn,
+    (smoothed_means, smoothed_covs, time_step) = tf.scan(update_step_fn,
                                               elems=(filtered_means,
                                                      filtered_covs,
                                                      predicted_means,
                                                      predicted_covs),
-                                              initializer=(initial_backward_mean, initial_backward_cov),
+                                              initializer=(initial_backward_mean, initial_backward_cov, last_time_step),
                                               reverse=True)
 
-    return (smoothed_means, smoothed_covs)
+    return smoothed_means, smoothed_covs
 
 
 def build_backward_pass_step(transition_fn_grad):
@@ -118,17 +119,19 @@ def build_backward_pass_step(transition_fn_grad):
 
         next_posterior_mean = state[0]
         next_posterior_cov = state[1]
+        time_step = state[-1]
 
-        posterior_mean, posterior_cov = backward_smoothing_update(
+        posterior_mean, posterior_cov, time_step = backward_smoothing_update(
             filtered_mean,
             filtered_cov,
             predicted_mean,
             predicted_cov,
             next_posterior_mean,
             next_posterior_cov,
-            transition_fn_grad)
+            transition_fn_grad,
+            time_step)
 
-        return (posterior_mean, posterior_cov)
+        return posterior_mean, posterior_cov, time_step
 
     return backward_pass_step
 
@@ -139,7 +142,8 @@ def backward_smoothing_update(filtered_mean,
                               predicted_cov,
                               next_posterior_mean,
                               next_posterior_cov,
-                              transition_fn_grad):
+                              transition_fn_grad,
+                              time_step):
     """Backward update for a Kalman smoother.
 
   Give the `filtered_mean` mu(t | t), `filtered_cov` sigma(t | t),
@@ -195,7 +199,9 @@ def backward_smoothing_update(filtered_mean,
     #      = (P^{-1} * T * F)'
     #      = (P^{-1} * tmp_gain_cov) '
     #      = (P \ tmp_gain_cov)'
-    tmp_gain_cov = tf.linalg.LinearOperatorFullMatrix(transition_fn_grad(filtered_mean)).matmul(filtered_cov)
+    # TODO: need to revise the grad. Not only for batch
+    grad_mean = transition_fn_grad(time_step, filtered_mean)
+    tmp_gain_cov = tf.linalg.LinearOperatorFullMatrix(grad_mean).matmul(filtered_cov)
     if latent_size_is_static_and_scalar:
         gain_transpose = tmp_gain_cov / predicted_cov
     else:
@@ -212,4 +218,4 @@ def backward_smoothing_update(filtered_mean,
                                  next_posterior_cov - predicted_cov, gain_transpose),
                              adjoint_a=True))
 
-    return (posterior_mean, posterior_cov)
+    return posterior_mean, posterior_cov, time_step-1
