@@ -4,7 +4,7 @@ import rpy2.robjects as ro
 from rpy2.robjects import numpy2ri
 from rpy2.robjects.packages import importr
 from Models.ssm_nlg import NonlinearSSM
-from Inference.SMC.bootstrap_filter import bootstrap_particle_filter
+from Inference.SMC.bootstrap_particle_filter import bootstrap_particle_filter
 from Models.check_argument import *
 import os.path as pth
 import os

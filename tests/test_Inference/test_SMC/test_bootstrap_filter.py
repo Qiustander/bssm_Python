@@ -1,7 +1,7 @@
 import tensorflow as tf
 import tensorflow_probability as tfp
 from Models.ssm_nlg import NonlinearSSM
-from Inference.SMC.bootstrap_filter import bootstrap_particle_filter
+from Inference.SMC.bootstrap_particle_filter import bootstrap_particle_filter
 from Models.check_argument import *
 import os.path as pth
 import os

@@ -52,6 +52,9 @@ class NonlinearSSM(object):
                  proposal_dist=None,
                  auxiliary_fn=None,
                  psi_two_filter_fn=None,
+                 log_target_dist=None,
+                 proposal_cond_list=None,
+                 log_theta_prior=None,
                  name='NonlinearSSM'):
         parameters = dict(locals())
         with tf.name_scope(name or 'NonlinearSSM') as name:
@@ -69,15 +72,21 @@ class NonlinearSSM(object):
             self._transition_dist = transition_dist
             self._transition_fn = transition_fn
             self._observation_fn = observation_fn
+
             self._proposal_dist = proposal_dist
             self._auxiliary_fn = auxiliary_fn
             self._psi_two_filter_fn = psi_two_filter_fn
+            self._log_target_dist = log_target_dist
+            self._proposal_cond_list = proposal_cond_list
+            self._log_theta_prior = log_theta_prior
 
             dtype_list = [initial_state_prior,
                           observation_dist,
                           transition_dist,
                           observation_fn_grad,
-                          transition_fn_grad]
+                          transition_fn_grad,
+                          transition_fn,
+                          observation_fn]
 
             # Infer dtype from time invariant objects. This list will be non-empty
             # since it will always include `initial_state_prior`.
@@ -121,11 +130,45 @@ class NonlinearSSM(object):
     def initial_state_prior(self):
         return self._initial_state_prior
 
-    @property
     def auxiliary_fn(self):
         """Auxiliary function for the Auxiliary Particle Filter, Default None
         """
         return self._auxiliary_fn
+
+    def log_target_dist(self, observations, num_particles=None):
+        """ Target (Log) Distribution for the Markov Chain Monte Carlo, Default None
+        The target distribution should be the log_prob attribute of a distribution
+        Args:
+            observations: the input observations y_{1:T}
+            num_particles: for particle MCMC
+        Returns:
+
+        """
+        pass
+
+    def log_theta_prior(self, theta):
+        """Log Prior likelihood of the parameters theta
+        Args:
+            theta: parameters
+        Returns: log_prob of the prior distritbuion
+
+        """
+        pass
+
+    @property
+    def proposal_cond_list(self):
+        """List of conditional distribution for the Gibbs sampling, Default None
+        a list of tuples `(state_part_idx, kernel_make_fn)`.
+                            `state_part_idx` denotes the index (relative to
+                            positional args in `target_log_prob_fn`) of the
+                            state the kernel updates.  `kernel_make_fn` takes
+                            arguments `target_log_prob_fn` and `state`, returning
+                            a `tfp.mcmc.TransitionKernel`.
+        """
+        def _kernel_mak_fn():
+            pass
+        
+        return self._proposal_cond_list
 
     @property
     def psi_two_filter_fn(self):
@@ -139,24 +182,27 @@ class NonlinearSSM(object):
         """
         return self._proposal_dist
 
+    def _update_model(self):
+        """Update the current function related to the parameters theta
+        """
+        pass
+
     def simulate(self, len_time_step, seed=None):
         """
-        Simulate true state and observations
+        Simulate true state and observations for filtering and smoothing, and parameter estimation.
         Args:
             seed: generated seed
             len_time_step: time length
         Returns:
             observations
         """
-        # TODO: add seed
-        seed = seed
 
         def _generate_signal(transition_fn, observation_fn):
             def _inner_wrap(gen_data, current_step):
                 last_state, last_observation = gen_data
 
-                current_state = transition_fn(current_step, last_state).sample()
-                current_observation = observation_fn(current_step, current_state).sample()
+                current_state = transition_fn(current_step, last_state).sample(seed=seed)
+                current_observation = observation_fn(current_step, current_state).sample(seed=seed)
                 return current_state, current_observation
 
             return _inner_wrap

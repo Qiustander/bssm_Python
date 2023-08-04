@@ -52,7 +52,7 @@ def forward_filter_backward_smoother(ssm_model,
                                                            num_particles=num_particles,
                                                            seed=pf_seed)
         elif particle_filter_name == 'bsf':
-            from .bootstrap_filter import bootstrap_particle_filter
+            from .bootstrap_particle_filter import bootstrap_particle_filter
             infer_result = bootstrap_particle_filter(ssm_model=ssm_model,
                                                      resample_fn='systematic',
                                                      observations=observations,

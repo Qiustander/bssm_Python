@@ -22,9 +22,12 @@ for more information.
 
 import numpy as np
 from numpy.random import random
+import tensorflow as tf
+from tensorflow_probability.python.distributions import uniform
+from tensorflow_probability.python.internal import prefer_static as ps
 
 
-def residual_resample(weights):
+def residual_resample(weights, seed=None):
     """ Performs the residual resampling algorithm used by particle filters.
 
     Based on observation that we don't need to use random numbers to select
@@ -71,7 +74,11 @@ def residual_resample(weights):
     residual /= sum(residual)           # normalize
     cumulative_sum = np.cumsum(residual)
     cumulative_sum[-1] = 1. # avoid round-off errors: ensures sum is exactly one
-    indexes[k:N] = np.searchsorted(cumulative_sum, random(N-k))
+    searchpoints = uniform.Uniform(low=ps.cast(0., dtype=weights.dtype),
+                                   high=ps.cast(1., dtype=weights.dtype)). \
+        sample(N-k, seed=seed).numpy()
+    import sys
+    indexes[k:N] = np.searchsorted(cumulative_sum, searchpoints)
 
     return indexes
 

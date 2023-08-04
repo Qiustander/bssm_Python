@@ -62,7 +62,7 @@ def infer_trajectories(ssm_model,
                                                                resample_ess=resample_ess,
                                                                num_particles=num_particles)
             elif particle_filter_name == 'bsf':
-                from .bootstrap_filter import bootstrap_particle_filter
+                from .bootstrap_particle_filter import bootstrap_particle_filter
                 infer_result = bootstrap_particle_filter(ssm_model=ssm_model,
                                                          resample_fn='systematic',
                                                          observations=observations,

@@ -101,20 +101,32 @@ def _resample_residual(weights, resample_num, seed=None, name=None):
        93(443):1032–1044, 1998.
     """
     with tf.name_scope(name or 'resample_resiudual'):
-        weights = tf.convert_to_tensor(weights, dtype_hint=tf.float32)
+        weights = tf.exp(tf.convert_to_tensor(weights, dtype_hint=tf.float32))
         if not resample_num:
             resample_num = ps.shape(weights)[-1]
 
         # deterministic sampling
         weights_int = resample_num * weights
         floor_weight = tf.floor(weights_int)
-        res_weight = weights_int - floor_weight
+        res_weight = weights - floor_weight
 
         # deal with interger part
-        range_weight = tf.repeat(tf.range(ps.shape(weights)[-1])[tf.newaxis, ...], ps.shape(weights)[0], axis=-1)
+        range_indx = tf.range(ps.shape(weights)[-1])
+        int_weight = tf.repeat(range_indx,
+                                 tf.cast(floor_weight, dtype=range_indx.dtype))
 
-        pass
-        # TODO: finish it
+        if tf.size(int_weight) == resample_num:
+            return int_weight
+        else:
+            cdf_res_weights = tf.concat([tf.math.cumsum(res_weight/tf.reduce_sum(res_weight), axis=-1)[..., :-1],
+                                     tf.ones([1, ], dtype=weights.dtype)],
+                                    axis=-1)
+            searchpoints = uniform.Uniform(low=ps.cast(0., dtype=weights.dtype),
+                                           high=ps.cast(1., dtype=weights.dtype)).\
+                sample(resample_num - tf.size(int_weight), seed=seed)
+            int_weight = tf.concat([int_weight,
+                                    tf.searchsorted(cdf_res_weights, searchpoints)], axis=-1)
+            return tf.sort(int_weight)
 
 
 def _resample_stratified(weights, resample_num, seed=None, name=None):
@@ -258,7 +270,5 @@ def _resample_multinomial(weights, resample_num, seed=None, name=None):
                                 axis=-1)
 
         resample_index = tf.searchsorted(cdf_weights, searchpoints)
-
-        # resample_index = Multinomial(probs=weights, total_count=ps.cast(resample_num, dtype=weights.dtype)).sample(1, seed=seed)
 
         return tf.sort(resample_index)
