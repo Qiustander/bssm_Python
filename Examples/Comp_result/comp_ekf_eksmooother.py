@@ -1,4 +1,3 @@
-import pytest
 import numpy as np
 import rpy2.robjects as ro
 from rpy2.robjects import numpy2ri
@@ -6,22 +5,19 @@ from rpy2.robjects.packages import importr
 from Models.ssm_nlg import NonlinearSSM
 from Models.check_argument import *
 from sklearn.metrics import mean_squared_error
+from Inference.Kalman.extended_kalman_smoother import extended_kalman_smoother
 from Inference.Kalman.extended_kalman_filter import extended_kalman_filter
-from Inference.Kalman.unscented_kalman_filter import unscented_kalman_filter
-from Inference.Kalman.ensemble_kalman_filter import ensemble_kalman_filter
 import matplotlib.pyplot as plt
 
-def debug_plot(ekf_result, ukf_result, enkf_result, true_state):
-    ekf, = plt.plot(ekf_result, color='blue', linewidth=1)
-    ukf, = plt.plot(ukf_result, color='green', linewidth=1)
-    enkf, = plt.plot(enkf_result, color='black', linewidth=1)
+def debug_plot(tfp_result, r_result, true_state):
+    tfp, = plt.plot(tfp_result, color='blue', linewidth=1)
+    r, = plt.plot(r_result, color='green', linewidth=1)
     true, = plt.plot(true_state, '-.', color='red', linewidth=1)
-    plt.legend(handles=[ekf, ukf, enkf, true], labels=['ekf', 'ukf', 'enkf', 'true'])
+    plt.legend(handles=[tfp, r, true], labels=['smoother', 'filter', 'true'])
 
     plt.show()
-    print(f'MSE error of EKF: {mean_squared_error(true_state,ekf_result)}')
-    print(f'MSE error of UKF: {mean_squared_error(true_state,ukf_result)}')
-    print(f'MSE error of EnKF: {mean_squared_error(true_state,enkf_result)}')
+    print(f'MSE error of Smoother: {mean_squared_error(true_state, tfp_result)}')
+    print(f'MSE error of Filter: {mean_squared_error(true_state, r_result)}')
 
 ro.r("""
 set.seed(1)
@@ -67,9 +63,8 @@ model_obj = NonlinearSSM.create_model(num_timesteps=num_timesteps,
                                       nonlinear_type="nlg_mv_model")
 
 infer_result_ekf = extended_kalman_filter(model_obj, observation)
-infer_result_ukf = unscented_kalman_filter(model_obj, observation)
-infer_result_enkf = ensemble_kalman_filter(model_obj, observation, num_particles=100)
+infer_result = extended_kalman_smoother(model_obj, observation)
 for i in range(4):
-    debug_plot(infer_result_ekf[0][:,i].numpy(), infer_result_ukf[0][:,i], infer_result_enkf[0][:,i], np.array(ro.r("x"))[:,i] )
+    debug_plot(infer_result[0][:,i].numpy(), infer_result_ekf[0][:,i], np.array(ro.r("x"))[:,i] )
 
 

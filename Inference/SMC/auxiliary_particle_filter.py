@@ -19,7 +19,6 @@ return_results = namedtuple(
 def auxiliary_particle_filter(ssm_model,
                               observations,
                               num_particles,
-                              auxiliary_fn=None,
                               is_gudied=False,
                               initial_state_proposal=None,
                               proposal_fn=None, # Could use other proposal function
@@ -27,6 +26,7 @@ def auxiliary_particle_filter(ssm_model,
                               resample_ess=0.5,
                               unbiased_gradients=True,
                               num_transitions_per_observation=1,
+                              trace_fn=default_trace_fn,
                               seed=None,
                               name=None):
     """
@@ -48,11 +48,11 @@ def auxiliary_particle_filter(ssm_model,
 
     """
 
-    with tf.name_scope(name or 'auxiliary_particle_filter') as name:
-        pf_seed, resample_seed = samplers.split_seed(
-            seed)
+    with tf.name_scope(name or 'auxiliary_particle_filter'):
+        if seed is None:
+            seed = samplers.sanitize_seed(seed, name='auxiliary_particle_filter')
 
-        if not auxiliary_fn and not is_gudied:
+        if ssm_model.auxiliary_fn() is None and not is_gudied:
             raise NotImplementedError('No Auxiliary Function!')
 
         (particles,  # num_time_step, particle_num, state_dim
@@ -62,7 +62,7 @@ def auxiliary_particle_filter(ssm_model,
          accumulated_log_marginal_likelihood) = particle_filter(
             observations=observations,
             initial_state_prior=ssm_model.initial_state_prior,
-            auxiliary_fn=auxiliary_fn,
+            auxiliary_fn=ssm_model.auxiliary_fn,
             transition_fn=ssm_model.transition_dist,
             observation_fn=ssm_model.observation_dist,
             num_particles=num_particles,
@@ -72,9 +72,9 @@ def auxiliary_particle_filter(ssm_model,
             resample_ess_num=resample_ess,
             unbiased_gradients=unbiased_gradients,
             num_transitions_per_observation=num_transitions_per_observation,
-            trace_fn=default_trace_fn,
+            trace_fn=trace_fn,
             trace_criterion_fn=lambda *_: True,
-            seed=pf_seed,
+            seed=seed,
             name=name)
 
         filtered_mean, predicted_mean, \

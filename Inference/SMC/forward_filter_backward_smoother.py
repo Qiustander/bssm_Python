@@ -38,8 +38,10 @@ def forward_filter_backward_smoother(ssm_model,
      https://doi.org/10.2307/1390750
 
   """
-    with tf.name_scope(name or 'forward_filter_backward_smoother') as name:
-        pf_seed, resample_seed = samplers.split_seed(
+    with tf.name_scope(name or 'forward_filter_backward_smoother'):
+        if seed is None:
+            seed = samplers.sanitize_seed(seed, name='forward_filter_backward_smoother')
+        pf_seed, _ = samplers.split_seed(
             seed, salt='forward_filter_backward_smoother')
 
         num_time_step = tf.get_static_value(tf.shape(observations))[0]
@@ -99,6 +101,7 @@ def forward_filter_backward_smoother(ssm_model,
                               incremental_log_marginal_likelihoods=incremental_log_marginal_likelihoods,
                               accumulated_log_marginal_likelihood=infer_result.accumulated_log_marginal_likelihood,
                               particles=particles, log_weights=log_weights, parent_indices=parent_indices)
+
 
 def _backward_filter_step(transition_fn, all_time_step):
     with tf.name_scope('backward_filter_step'):

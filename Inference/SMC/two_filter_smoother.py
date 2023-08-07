@@ -37,9 +37,11 @@ def two_filter_smoother(ssm_model,
      https://doi.org/10.2307/1390750
 
   """
-    with tf.name_scope(name or 'forward_filter_backward_smoother') as name:
+    with tf.name_scope(name or 'two_filter_smoother'):
+        if seed is None:
+            seed = samplers.sanitize_seed(seed, name='two_filter_smoother')
         pf_seed, resample_seed = samplers.split_seed(
-            seed, salt='forward_filter_backward_smoother')
+            seed, salt='two_filter_smoother')
 
         num_time_step = tf.get_static_value(tf.shape(observations))[0]
         if particle_filter_name == 'ekf':

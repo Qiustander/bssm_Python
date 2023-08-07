@@ -33,7 +33,7 @@ def gibbs_sampling(ssm_model,
 
     """
 
-    with tf.name_scope(name or 'gibbs_sampling') as name:
+    with tf.name_scope(name or 'gibbs_sampling'):
 
         if not ssm_model.target_dist:
             raise NotImplementedError("No target distribution exists!")

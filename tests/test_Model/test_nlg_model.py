@@ -44,7 +44,8 @@ class TestNonlinearModel:
 
         tf.debugging.assert_equal(
             model_obj.observation_dist(test_time_step, test_state).mean(),
-            tf.convert_to_tensor(model_obj.observation_fn(test_time_step, test_state) + input_obs, dtype=dtype_tensor.dtype),
+            tf.convert_to_tensor(model_obj.observation_fn(test_time_step, test_state)
+                                 + input_obs, dtype=dtype_tensor.dtype),
         )
         tf.debugging.assert_equal(
             model_obj.transition_dist(test_time_step, test_state).mean(),
@@ -94,7 +95,7 @@ class TestNonlinearModel:
                                     (model_obj.initial_state_prior.sample(), (state_dim,)),
                                     ])
 
-        dtype_tensor = model_obj.transition_noise_fn.mean()
+        dtype_tensor = model_obj.transition_dist(test_time_step, test_state).mean()
 
         tf.debugging.assert_equal(
             model_obj.observation_dist(test_time_step, test_state).mean(),

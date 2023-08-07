@@ -219,7 +219,7 @@ def _check_parameters(obs_len,
 
     return {"observation_matrix": observation_matrix, "transition_matrix": transition_matrix,
             "transition_noise": transition_noise, "observation_noise": observation_noise,
-            "transition_dist": transition_dist, "observation_dist": observation_dist,
+            # "transition_dist": transition_dist, "observation_dist": observation_dist,
             "initial_state_prior": initial_state_prior, "num_timesteps": obs_len, "state_dim": state_dim}
 
 

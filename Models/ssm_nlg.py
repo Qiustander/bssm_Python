@@ -5,8 +5,8 @@ from tensorflow_probability.python.internal import dtype_util
 
 tfd = tfp.distributions
 from tensorflow_probability.python.internal import prefer_static as ps
+
 from runtime_wrap import get_runtime
-import numpy as np
 
 
 class NonlinearSSM(object):
@@ -49,12 +49,7 @@ class NonlinearSSM(object):
                  experimental_parallelize=False,
                  validate_args=False,
                  allow_nan_stats=True,
-                 proposal_dist=None,
-                 auxiliary_fn=None,
-                 psi_two_filter_fn=None,
-                 log_target_dist=None,
-                 proposal_cond_list=None,
-                 log_theta_prior=None,
+                 dtype=tf.float32,
                  name='NonlinearSSM'):
         parameters = dict(locals())
         with tf.name_scope(name or 'NonlinearSSM') as name:
@@ -73,13 +68,6 @@ class NonlinearSSM(object):
             self._transition_fn = transition_fn
             self._observation_fn = observation_fn
 
-            self._proposal_dist = proposal_dist
-            self._auxiliary_fn = auxiliary_fn
-            self._psi_two_filter_fn = psi_two_filter_fn
-            self._log_target_dist = log_target_dist
-            self._proposal_cond_list = proposal_cond_list
-            self._log_theta_prior = log_theta_prior
-
             dtype_list = [initial_state_prior,
                           observation_dist,
                           transition_dist,
@@ -92,7 +80,8 @@ class NonlinearSSM(object):
             # since it will always include `initial_state_prior`.
             dtype = dtype_util.common_dtype(
                 list(filter(lambda x: not callable(x), dtype_list)),
-                dtype_hint=tf.float32)
+                dtype_hint=dtype)
+            # self.dtype = dtype
 
     @property
     def observation_fn_grad(self):
@@ -130,12 +119,14 @@ class NonlinearSSM(object):
     def initial_state_prior(self):
         return self._initial_state_prior
 
+    # Function type
+
     def auxiliary_fn(self):
         """Auxiliary function for the Auxiliary Particle Filter, Default None
         """
-        return self._auxiliary_fn
+        pass
 
-    def log_target_dist(self, observations, num_particles=None):
+    def log_target_dist(self):
         """ Target (Log) Distribution for the Markov Chain Monte Carlo, Default None
         The target distribution should be the log_prob attribute of a distribution
         Args:
@@ -146,7 +137,7 @@ class NonlinearSSM(object):
         """
         pass
 
-    def log_theta_prior(self, theta):
+    def log_theta_prior(self):
         """Log Prior likelihood of the parameters theta
         Args:
             theta: parameters
@@ -155,7 +146,6 @@ class NonlinearSSM(object):
         """
         pass
 
-    @property
     def proposal_cond_list(self):
         """List of conditional distribution for the Gibbs sampling, Default None
         a list of tuples `(state_part_idx, kernel_make_fn)`.
@@ -165,44 +155,47 @@ class NonlinearSSM(object):
                             arguments `target_log_prob_fn` and `state`, returning
                             a `tfp.mcmc.TransitionKernel`.
         """
-        def _kernel_mak_fn():
-            pass
-        
-        return self._proposal_cond_list
 
-    @property
+        pass
+
     def psi_two_filter_fn(self):
         """Artificial distribution for the generalized two-filter Particle smoother, Default None
         """
-        return self._psi_two_filter_fn
+        pass
 
-    @property
     def proposal_dist(self):
-        """Proposal distribution for the MCMC and SMC, Default None
+        """Proposal distribution for and SMC, Default None
         """
-        return self._proposal_dist
+        pass
 
-    def _update_model(self):
+    def update_model(self):
         """Update the current function related to the parameters theta
         """
         pass
 
-    def simulate(self, len_time_step, seed=None):
+    def initial_theta(self):
+        """Initialize the parameters theta for parameterization
+        """
+        pass
+
+    @tf.function
+    def simulate(self, seed=None):
         """
         Simulate true state and observations for filtering and smoothing, and parameter estimation.
         Args:
             seed: generated seed
-            len_time_step: time length
         Returns:
             observations
         """
+        len_time_step = self._num_timesteps
 
         def _generate_signal(transition_fn, observation_fn):
             def _inner_wrap(gen_data, current_step):
                 last_state, last_observation = gen_data
 
                 current_state = transition_fn(current_step, last_state).sample(seed=seed)
-                current_observation = observation_fn(current_step, current_state).sample(seed=seed)
+                current_observation = observation_fn(current_step, current_state).sample(seed=seed)\
+
                 return current_state, current_observation
 
             return _inner_wrap

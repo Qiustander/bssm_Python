@@ -1,7 +1,7 @@
 ## Unit Test and Integration Test of TFP Based BSSM
 
 All testing are done by `pytest` and `tf.testing`
-### [test_numerical_case](test_numerical_case)
+### [test_numerical_case](test_with_bssm)
 Contains the integration test and the comparsion with orignal `bssm` package.
 
 

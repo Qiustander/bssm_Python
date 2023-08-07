@@ -114,7 +114,7 @@ class GibbsKernel(mcmc.TransitionKernel):
       end
     ```
 
-    #### Example 1: 2-variate MVN
+    #### Examples 1: 2-variate MVN
     ```python
         import numpy as np
         import tensorflow as tf
@@ -166,7 +166,7 @@ class GibbsKernel(mcmc.TransitionKernel):
 
     ```
 
-    #### Example 2: linear model
+    #### Examples 2: linear model
     ```python
         import numpy as np
         import tensorflow as tf
@@ -324,9 +324,10 @@ class GibbsKernel(mcmc.TransitionKernel):
         for (state_part_idx, kernel_fn), previous_step_results in zip(
                 self.kernel_list, previous_results.inner_results
         ):
+            # TODO: - Qiuliang, the author uses the corresponding previous_results.inner_results for computation
+            # Seems werid. Should use the current_results.last_step for computation.
 
             def target_log_prob_fn(state_part):
-                #TODO: check this function, this happens before the upddate, why update the state_parts -Qiuliang
                 state_parts[
                     state_part_idx  # pylint: disable=cell-var-from-loop
                 ] = state_part
@@ -334,6 +335,7 @@ class GibbsKernel(mcmc.TransitionKernel):
                 return self.target_log_prob_fn(*state_parts)
 
             # kernel_fn is the kernel_make_fn
+            # The target_log_prob is computed after the update of the parameter
             kernel = kernel_fn(target_log_prob_fn, state_parts)
 
             # Forward the current tlp to the kernel.  If the kernel is gradient-based,

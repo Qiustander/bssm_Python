@@ -56,22 +56,23 @@ class TestExtendKalmanFilter:
                                         ])
 
     def test_multivariate_model_shape(self):
-        obs_len = 200
+        num_timesteps = 200
         state_dim = 4
-        # observation = np.ones([obs_len, 3])
-        observation = np.stack([np.ones([obs_len,]), 2*np.ones([obs_len,]), 4*np.ones([obs_len,])], axis=-1)
-        size_y, observation = check_y(observation.astype("float32"))  # return time length and feature numbers
-        num_timesteps, observation_size = size_y
+        observation_size = 3
+        # # observation = np.ones([obs_len, 3])
+        # observation = np.stack([np.ones([obs_len,]), 2*np.ones([obs_len,]), 4*np.ones([obs_len,])], axis=-1)
+        # size_y, observation = check_y(observation.astype("float32"))  # return time length and feature numbers
+        # num_timesteps, observation_size = size_y
 
         model_obj = NonlinearSSM.create_model(num_timesteps=num_timesteps,
                                               observation_size=observation_size,
                                               latent_size=state_dim,
-                                              initial_state_mean=np.array([0., 0., 0., 0.]),
-                                              initial_state_cov=np.diag([1, 2, 1, 1.5]),
-                                              state_noise_std=np.diag([0.1, 0.1, 0.5, 0.1]),
+                                              initial_state_mean=np.array([1., 1., 1.5, 1.1]),
+                                              initial_state_cov=np.diag([0.01, 0.01, 0.01, 0.01]),
+                                              state_noise_std=np.diag([0, 0., 0., 0.]),
                                               obs_noise_std=np.diag([0.1, 0.1, 0.1]),
                                               nonlinear_type="constant_dynamic_multivariate_test")
-
+        true_state, observation = model_obj.simulate(num_timesteps)
         infer_result = extended_kalman_filter(model_obj, observation)
 
         # constant observation, must converge to this point

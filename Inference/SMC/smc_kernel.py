@@ -23,7 +23,6 @@ from tensorflow_probability.python.internal import samplers
 from tensorflow_probability.python.mcmc import kernel as kernel_base
 from tensorflow_probability.python.mcmc.internal import util as mcmc_util
 
-
 __all__ = [
     'SequentialMonteCarlo',
     'SequentialMonteCarloResults',
@@ -131,6 +130,7 @@ def adaptive_resampling(threshold):
             num_particles = ps.size0(weighted_particles.log_weights)
             log_ess = log_ess_from_log_weights(weighted_particles.log_weights)
             return log_ess < (ps.log(num_particles) + ps.log(threshold))
+
     return ess_below_threshold
 
 
@@ -149,6 +149,8 @@ class SequentialMonteCarlo(kernel_base.TransitionKernel):
                  resample_fn,
                  resample_ess_num=0.5,
                  unbiased_gradients=True,
+                 is_conditional=False,
+                 conditional_sample=None,
                  name=None):
         """Initializes a sequential Monte Carlo transition kernel.
 
@@ -206,6 +208,8 @@ class SequentialMonteCarlo(kernel_base.TransitionKernel):
         self._resample_fn = resample_fn
         self._resample_criterion_fn = adaptive_resampling(resample_ess_num)
         self._unbiased_gradients = unbiased_gradients
+        self._is_conditional = is_conditional
+        self._conditional_sample = conditional_sample
         self._name = name or 'SequentialMonteCarlo'
 
     @property
@@ -215,6 +219,14 @@ class SequentialMonteCarlo(kernel_base.TransitionKernel):
     @property
     def name(self):
         return self._name
+
+    @property
+    def is_conditional(self):
+        return self._is_conditional
+
+    @property
+    def conditional_sample(self):
+        return self._conditional_sample
 
     @property
     def propose_and_update_log_weights_fn(self):
@@ -256,15 +268,16 @@ class SequentialMonteCarlo(kernel_base.TransitionKernel):
     """
         with tf.name_scope(self.name):
             with tf.name_scope('one_step'):
+
                 seed = samplers.sanitize_seed(seed)
                 proposal_seed, resample_seed = samplers.split_seed(seed)
-
                 state = WeightedParticles(*state)  # Canonicalize.
 
                 last_state_weight = state.log_weights
+                # import sys
                 normalized_log_weights = tf.nn.log_softmax(state.log_weights, axis=0)
                 if auxiliary_fn:
-                    auxiliary_log_weights = state.log_weights*auxiliary_fn(kernel_results.steps, state.particles)
+                    auxiliary_log_weights = state.log_weights * auxiliary_fn(kernel_results.steps, state.particles)
                     auxiliary_log_weights = tf.nn.log_softmax(auxiliary_log_weights, axis=0)
 
                 # do resampling first for x_{t-1} -> w_{t-1}
@@ -305,13 +318,27 @@ class SequentialMonteCarlo(kernel_base.TransitionKernel):
                 # In APF, the weights need to be adjusted
                 gather_ancestors = lambda x: (  # pylint: disable=g-long-lambda
                     mcmc_util.index_remapping_gather(x, resample_indices, axis=0))
-                if do_resample:
-                    if auxiliary_fn:
-                        resampled_weights_normal = tf.nest.map_structure(gather_ancestors, normalized_log_weights)
-                        last_adjust_aux_weights = resampled_weights_normal - log_weights
-                    else: last_adjust_aux_weights = log_weights
+
+                if auxiliary_fn is not None:
+                    dummy_indicator = 1
                 else:
-                    last_adjust_aux_weights = log_weights
+                    dummy_indicator = 0
+
+                last_adjust_aux_weights = tf.cond(do_resample,
+                                                  lambda: tf.cond(tf.equal(
+                                                      tf.get_static_value(dummy_indicator), 1),
+                                                      lambda: tf.nest.map_structure(gather_ancestors, normalized_log_weights) - log_weights,
+                                                      lambda: log_weights),
+                                                  lambda: log_weights)
+
+                # if do_resample:
+                #     if auxiliary_fn is not None:
+                #         resampled_weights_normal = tf.nest.map_structure(gather_ancestors, normalized_log_weights)
+                #         last_adjust_aux_weights = resampled_weights_normal - log_weights
+                #     else:
+                #         last_adjust_aux_weights = log_weights
+                # else:
+                #     last_adjust_aux_weights = log_weights
 
                 # Propose new particles and update weights for this step, unless it's
                 # the initial step, in which case, use the user-provided initial
@@ -327,8 +354,23 @@ class SequentialMonteCarlo(kernel_base.TransitionKernel):
                 state = tf.nest.map_structure(
                     lambda a, b: tf.where(is_initial_step, a, b), state, proposed_state)
 
-                incremental_log_marginal_likelihood = tf.reduce_logsumexp(state.log_weights) -\
-                                                                          tf.reduce_logsumexp(last_state_weight)
+                if self.is_conditional:
+                    # dim: # particles, state_dim
+                    update_idx = tf.gather(self.conditional_sample.conditional_path, indices=kernel_results.steps,
+                                           axis=0)
+                    replace_sample = tf.gather(self.conditional_sample.conditional_sample, indices=kernel_results.steps,
+                                               axis=0)
+                    state = tf.tensor_scatter_nd_update(state,
+                                                        indices=[update_idx],
+                                                        updates=[replace_sample])
+                    # update the ancestor
+                    # TODO: add unittest
+                    resample_indices = tf.tensor_scatter_nd_update(resample_indices,
+                                                                   indices=[update_idx],
+                                                                   updates=[update_idx])
+
+                incremental_log_marginal_likelihood = tf.reduce_logsumexp(state.log_weights) - \
+                                                      tf.reduce_logsumexp(last_state_weight)
 
             return (WeightedParticles(particles=state.particles,
                                       log_weights=state.log_weights),

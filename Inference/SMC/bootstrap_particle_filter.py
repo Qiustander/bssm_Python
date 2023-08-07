@@ -25,11 +25,13 @@ def bootstrap_particle_filter(ssm_model,
                               resample_ess=0.5,
                               unbiased_gradients=True,
                               num_transitions_per_observation=1,
+                              trace_fn=default_trace_fn,
                               seed=None,
                               name=None):
     """
 
     Args:
+        trace_fn:
         ssm_model: state space model
         observations: observed points
         num_particles: the number of particles
@@ -46,9 +48,10 @@ def bootstrap_particle_filter(ssm_model,
 
     """
 
-    with tf.name_scope(name or 'bootstrap_particle_filter') as name:
-        pf_seed, resample_seed = samplers.split_seed(
-            seed)
+    with tf.name_scope(name or 'bootstrap_particle_filter'):
+        if seed is None:
+            seed = samplers.sanitize_seed(seed, name='bootstrap_particle_filter')
+
         (particles,  # num_time_step, particle_num, state_dim
          log_weights,
          parent_indices,
@@ -66,9 +69,9 @@ def bootstrap_particle_filter(ssm_model,
             resample_ess_num=resample_ess,
             unbiased_gradients=unbiased_gradients,
             num_transitions_per_observation=num_transitions_per_observation,
-            trace_fn=default_trace_fn,
+            trace_fn=trace_fn,
             trace_criterion_fn=lambda *_: True,
-            seed=pf_seed,
+            seed=seed,
             name=name)
 
         # state_dim = ssm_model.initial_state_prior.sample().shape[0]

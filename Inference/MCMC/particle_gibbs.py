@@ -4,20 +4,20 @@ from tensorflow_probability.python.mcmc.random_walk_metropolis import RandomWalk
 from collections import namedtuple
 
 """
-Metropolis Hasting Algorithm with Random Walk Proposal Distribution
+Particle Gibbs Sampling Algorithm 
 """
 
 return_results = namedtuple(
-    'RandomWalkMetropolisHastingsResult', ['states', 'trace_results'])
+    'ParticleGibbsResult', ['states', 'trace_results'])
 
 
-def random_walk_metropolis_hastings(ssm_model,
-                        num_results,
-                        num_burnin_steps,
-                        num_steps_between_results=0,
-                        init_state=None,
-                        seed=None,
-                        name=None):
+def particle_gibbs_sampling(ssm_model,
+                            num_results,
+                            num_burnin_steps,
+                            num_steps_between_results=0,
+                            init_state=None,
+                            seed=None,
+                            name=None):
     """
 
     Args:
@@ -33,12 +33,13 @@ def random_walk_metropolis_hastings(ssm_model,
 
     """
 
-    with tf.name_scope(name or 'metropolis_hastings') as name:
+    with tf.name_scope(name or 'particle_gibbs') as name:
 
         if not ssm_model.target_dist:
             raise NotImplementedError("No target distribution exists!")
         if not init_state:
             init_state = tf.zeros_like(ssm_model.target_dist.sample())
+
         mh_kernel = RandomWalkMetropolis(ssm_model.target_dist,
                                          new_state_fn=random_walk_normal_fn(scale=0.5))
 
