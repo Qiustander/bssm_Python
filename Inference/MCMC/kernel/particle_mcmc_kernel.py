@@ -55,8 +55,6 @@ class ParticleMetropolisHastings(kernel_base.TransitionKernel):
 
     def __init__(self,
                  target_log_prob_fn,
-                 num_particles,
-                 particle_filter_method=None,
                  proposal_theta_fn=None,
                  experimental_shard_axis_names=None,
                  name=None):
@@ -95,8 +93,6 @@ class ParticleMetropolisHastings(kernel_base.TransitionKernel):
             inner_kernel=UncalibratedPMCMC(
                 target_log_prob_fn=target_log_prob_fn,
                 proposal_theta_fn=proposal_theta_fn,
-                num_particles=num_particles,
-                particle_filter_method=particle_filter_method,
                 name=name)).experimental_with_shard_axes(
             experimental_shard_axis_names)
         self._parameters = self._impl.inner_kernel.parameters.copy()
@@ -172,15 +168,11 @@ class UncalibratedPMCMC(kernel_base.TransitionKernel):
     @mcmc_util.set_doc(ParticleMetropolisHastings.__init__.__doc__)
     def __init__(self,
                  target_log_prob_fn,
-                 num_particles,
-                 particle_filter_method,
                  proposal_theta_fn=None,
                  experimental_shard_axis_names=None,
                  name=None):
         if proposal_theta_fn is None:
             proposal_theta_fn = random_walk_normal_fn()
-        if particle_filter_method is None:
-            particle_filter_method = 'bsf'
 
         self._target_log_prob_fn = target_log_prob_fn
         self._name = name
@@ -188,17 +180,11 @@ class UncalibratedPMCMC(kernel_base.TransitionKernel):
             target_log_prob_fn=target_log_prob_fn,
             proposal_theta_fn=proposal_theta_fn,
             experimental_shard_axis_names=experimental_shard_axis_names,
-            particle_filter_method=particle_filter_method,
-            num_particles=num_particles,
             name=name)
 
     @property
     def num_particles(self):
         return self._parameters['num_particles']
-
-    @property
-    def particle_filter_method(self):
-        return self._parameters['particle_filter_method']
 
     @property
     def target_log_prob_fn(self):
@@ -274,8 +260,7 @@ class UncalibratedPMCMC(kernel_base.TransitionKernel):
                 init_state = [init_state]
             init_state = [tf.convert_to_tensor(x) for x in init_state]
 
-            init_target_log_prob, trace_smc_results = self.target_log_prob_fn(
-                                                                              *init_state)  # pylint:disable=not-callable
+            init_target_log_prob, trace_smc_results = self.target_log_prob_fn(*init_state)  # pylint:disable=not-callable
 
             return UncalibratedPMCMCResults(
                 log_acceptance_correction=tf.zeros_like(init_target_log_prob),

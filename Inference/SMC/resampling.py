@@ -51,7 +51,6 @@ def resample(particles, log_weights, resample_fn, target_log_weights=None,
   """
     with tf.name_scope('resample'):
         num_particles = ps.size0(log_weights)
-        log_num_particles = tf.math.log(tf.cast(num_particles, log_weights.dtype))
 
         # Normalize the weights and sample the ancestral indices.
         log_probs = tf.math.log_softmax(log_weights, axis=0)
@@ -62,9 +61,9 @@ def resample(particles, log_weights, resample_fn, target_log_weights=None,
         resampled_particles = tf.nest.map_structure(gather_ancestors, particles)
         if target_log_weights is None:
             log_weights_after_resampling = tf.fill(ps.shape(log_weights),
-                                                   -log_num_particles)
+                                                   -0.)
         else:
-            importance_weights = target_log_weights - log_probs - log_num_particles
+            importance_weights = target_log_weights - log_weights
             log_weights_after_resampling = tf.nest.map_structure(
                 gather_ancestors, importance_weights)
     return resampled_particles, resampled_indices, log_weights_after_resampling

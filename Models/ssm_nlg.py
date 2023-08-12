@@ -191,10 +191,10 @@ class NonlinearSSM(object):
 
         def _generate_signal(transition_fn, observation_fn):
             def _inner_wrap(gen_data, current_step):
-                last_state, last_observation = gen_data
+                last_state, _ = gen_data
 
                 current_state = transition_fn(current_step, last_state).sample(seed=seed)
-                current_observation = observation_fn(current_step, current_state).sample(seed=seed)\
+                current_observation = observation_fn(current_step, current_state).sample(seed=seed)
 
                 return current_state, current_observation
 

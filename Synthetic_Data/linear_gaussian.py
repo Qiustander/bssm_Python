@@ -13,25 +13,26 @@ def gen_data(testcase='multivariate', num_timesteps=200, state_dim=1, observed_d
         # Univariate
         state_dim = 1
         observed_dim = 1
-
-        transition_matrix = 0.7
-        observation_matrix = 0.8
-        prior_mean = np.ones(shape=state_dim)
-        prior_cov = np.diag(np.ones(shape=[state_dim, ]))
         state_mtx_noise = 1.
-        obs_mtx_noise = 0.5
+        obs_mtx_noise = 0.25
+        transition_matrix = 0.7
+        observation_matrix = 1.
+        prior_mean = np.zeros(shape=state_dim)
+        prior_cov = np.diag(state_mtx_noise/np.sqrt(1. - transition_matrix**2)*np.ones(shape=[state_dim, ]))
+
     elif testcase == 'multivariate':
         # Multivariate
         transition_matrix_temp = np.random.uniform(low=0.1, high=0.8, size=[state_dim, state_dim, num_timesteps])
         transition_matrix = np.zeros(shape=transition_matrix_temp.shape)
         transition_matrix[np.arange(state_dim), np.arange(state_dim), :] = \
             transition_matrix_temp[np.arange(state_dim), np.arange(state_dim), :]
+        state_mtx_noise = np.diag(np.random.uniform(low=0.5, high=1., size=[state_dim, ]))
+        obs_mtx_noise = np.diag(np.random.uniform(low=0.5, high=1., size=[observed_dim, ]))
 
         observation_matrix = 0.5*np.ones(shape=[observed_dim, state_dim])
         prior_mean = np.zeros(shape=state_dim)
-        prior_cov = np.diag(np.ones(shape=[state_dim, ]))
-        state_mtx_noise = np.diag(np.random.uniform(low=0.5, high=1., size=[state_dim, ]))
-        obs_mtx_noise = np.diag(np.random.uniform(low=0.5, high=1., size=[observed_dim, ]))
+        prior_cov = np.diag(state_mtx_noise/np.sqrt(1. - transition_matrix**2)*np.ones(shape=[state_dim, ]))
+
     else:
         raise AttributeError("Wrong input")
     model_obj = NonlinearSSM.create_model(num_timesteps=num_timesteps,

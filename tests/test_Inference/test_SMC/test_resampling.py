@@ -49,7 +49,7 @@ class TestResampling:
         tf.random.set_seed(seed)
         resample_indx_tfp = resample_systematic(log_prob, num_particles, (), seed=seed)
         tf.random.set_seed(seed)
-        resample_indx_self = resample._resample_stratified(log_prob, resample_num=num_particles, seed=seed)
+        resample_indx_self = resample._resample_systematic(log_prob, resample_num=num_particles, seed=seed)
         tf.random.set_seed(seed)
         interval_width = ps.cast(1. / num_particles, dtype=tf.float32)
         offsets = tfd.uniform.Uniform(low=ps.cast(0., dtype=tf.float32),

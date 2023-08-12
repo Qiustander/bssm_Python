@@ -17,6 +17,7 @@
 import numpy as np
 import tensorflow as tf
 from . import smc_kernel
+# from tensorflow_probability.python.experimental.mcmc import sequential_monte_carlo_kernel as smc_kernel
 from . import resampling as weighted_resampling
 from tensorflow_probability.python.internal import assert_util
 from tensorflow_probability.python.internal import docstring_util
@@ -24,7 +25,6 @@ from tensorflow_probability.python.internal import loop_util
 from tensorflow_probability.python.internal import prefer_static as ps
 from tensorflow_probability.python.internal import tensorshape_util
 from tensorflow_probability.python.internal import samplers
-from Utils.smc_utils.smc_utils import default_trace_fn
 
 __all__ = [
     'particle_filter',
@@ -108,6 +108,13 @@ Args:
 """
 Particle Filter Main Functions: Bootstrap, EKPF, APF
 """
+def _default_trace_fn(state, kernel_results):
+  return (state.particles,
+          state.log_weights,
+          kernel_results.parent_indices,
+          kernel_results.incremental_log_marginal_likelihood,
+          kernel_results.accumulated_log_marginal_likelihood)
+
 
 @docstring_util.expand_docstring(
     particle_filter_arg_str=particle_filter_arg_str.format(scibor_ref_idx=1))
@@ -123,7 +130,7 @@ def particle_filter(observations,
                     unbiased_gradients=False,
                     filter_method=None,
                     num_transitions_per_observation=1,
-                    trace_fn=default_trace_fn,
+                    trace_fn=_default_trace_fn,
                     trace_criterion_fn=_always_trace,
                     static_trace_allocation_size=None,
                     parallel_iterations=1,
@@ -199,8 +206,7 @@ def particle_filter(observations,
         observation_fn_grad = None
     if is_conditional and not conditional_sample:
         raise AttributeError("No conditional sample and trajectory is provided!")
-    if seed is None:
-        seed = samplers.sanitize_seed(seed, name='particle_filter')
+
     init_seed, loop_seed = samplers.split_seed(seed, salt='particle_filter')
     with tf.name_scope(name or 'particle_filter'):
         num_observation_steps = ps.size0(tf.nest.flatten(observations)[0])
@@ -254,7 +260,7 @@ def particle_filter(observations,
             seed, state, results = seed_state_results
             one_step_seed, next_seed = samplers.split_seed(seed)
             next_state, next_results = kernel.one_step(
-                state, results, auxiliary_fn=auxiliary_fn, seed=one_step_seed)
+                state, results, auxiliary_fn=None, seed=one_step_seed)
             return next_seed, next_state, next_results
 
         final_seed_state_result, traced_results = loop_util.trace_scan(
@@ -275,11 +281,7 @@ def particle_filter(observations,
             traced_results = trace_fn(*final_seed_state_result[1:])
         # else:
         #     traced_results = _combine_initial_state(initial_weighted_particles, traced_results)
-            import logging
-            logging.basicConfig(level=logging.DEBUG)
-            logging.info(f"sigma x {tf.get_static_value(traced_results[0])}")
-            logging.info(f"sigma x {tf.get_static_value(traced_results[1])}")
-            logging.info(f"sigma x {tf.get_static_value(traced_results[2])}")
+
         return traced_results
 
 
@@ -308,7 +310,8 @@ def _particle_filter_initial_weighted_particles(observations,
     # No need to multiple with auxiliary function in the initial step
     if initial_state_proposal is None:
         initial_state = initial_state_prior.sample(num_particles, seed=seed)
-        initial_log_weights = initial_state_prior.log_prob(initial_state)
+        initial_log_weights = ps.zeros_like(
+            initial_state_prior.log_prob(initial_state))
     else:
 
         observation = tf.nest.map_structure(
