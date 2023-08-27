@@ -23,6 +23,7 @@ class GibbsKernelResults(
         [
             "target_log_prob",
             "inner_results",
+            "step",
         ],
     ),
 ):
@@ -324,19 +325,19 @@ class GibbsKernel(mcmc.TransitionKernel):
         for (state_part_idx, kernel_fn), previous_step_results in zip(
                 self.kernel_list, previous_results.inner_results
         ):
-            # TODO: - Qiuliang, the author uses the corresponding previous_results.inner_results for computation
-            # Seems werid. Should use the current_results.last_step for computation.
 
             def target_log_prob_fn(state_part):
+                # This function is defined before the update, so need extra step to update the state_parts
                 state_parts[
                     state_part_idx  # pylint: disable=cell-var-from-loop
                 ] = state_part
+
                 # Update the latest index
                 return self.target_log_prob_fn(*state_parts)
 
             # kernel_fn is the kernel_make_fn
             # The target_log_prob is computed after the update of the parameter
-            kernel = kernel_fn(target_log_prob_fn, state_parts)
+            kernel = kernel_fn(target_log_prob_fn, state_parts, state_part_idx)
 
             # Forward the current tlp to the kernel.  If the kernel is gradient-based,
             # we need to calculate fresh gradients, as these cannot easily be forwarded
@@ -363,7 +364,7 @@ class GibbsKernel(mcmc.TransitionKernel):
                         direction="inverse",
                     ),
                 )
-
+            # For full conditional sampling, we need to pass the full states
             state_parts[state_part_idx], next_kernel_results = kernel.one_step(
                 state_parts[state_part_idx], previous_step_results, seed
             )
@@ -377,14 +378,14 @@ class GibbsKernel(mcmc.TransitionKernel):
                 kernel=kernel,
                 direction="forward",
             )
-
         return (
             state_parts
             if mcmc_util.is_list_like(current_state)
             else state_parts[0],
             GibbsKernelResults(
                 target_log_prob=untransformed_target_log_prob,
-                inner_results=next_results,  # All intermediate results are recorded, is it necessary?
+                inner_results=next_results,  # All intermediate results are recorded, is it necessary? - Qiuliang
+                step=1 + previous_results.step,
             ),
         )
 
@@ -407,7 +408,7 @@ class GibbsKernel(mcmc.TransitionKernel):
                 ] = state_part
                 return self.target_log_prob_fn(*state_parts)
 
-            kernel = kernel_fn(target_log_prob_fn, current_state)
+            kernel = kernel_fn(target_log_prob_fn, current_state, state_part_idx)
             kernel_results = kernel.bootstrap_results(
                 state_parts[state_part_idx]
             )
@@ -422,4 +423,5 @@ class GibbsKernel(mcmc.TransitionKernel):
         return GibbsKernelResults(
             target_log_prob=untransformed_target_log_prob,
             inner_results=inner_results,
+            step=tf.constant(0, dtype=tf.int32),
         )

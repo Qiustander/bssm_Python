@@ -10,10 +10,9 @@ def diagnostic_functions():
 
 class MCMCDiagnostic(object):
 
-    def __init__(self, mcmc_results):
+    def __init__(self, mcmc_states, mcmc_results):
 
         pass
-
 
     def diagnostic(self):
         pass

@@ -49,9 +49,7 @@ class TestExtendedKalmanFilter:
           x[i] <- rnorm(1, mu * (1 - rho) + rho * x[i - 1], sigma_x)
         }
         y <- rnorm(n, exp(x), sigma_y)
-        setwd('../../bssm_R/src')
         pntrs <- cpp_example_model("nlg_ar_exp")
-        Rcpp::sourceCpp("model_ssm_nlg_edit.cpp")
 
         model_nlg <- ssm_nlg(y = y, a1 = pntrs$a1, P1 = pntrs$P1,
           Z = pntrs$Z_fn, H = pntrs$H_fn, T = pntrs$T_fn, R = pntrs$R_fn,

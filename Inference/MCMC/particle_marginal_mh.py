@@ -5,13 +5,13 @@ from tensorflow_probability.python.mcmc.simple_step_size_adaptation import Simpl
 from collections import namedtuple
 from Inference.MCMC.kernel.particle_mcmc_kernel import ParticleMetropolisHastings
 from tensorflow_probability.python.internal import samplers
-
+import tensorflow_probability.python.internal.prefer_static as ps
 """
 (Particle) Marginal Metropolis Hasting Algorithm with Random Walk Proposal Distribution
 """
 
 return_results = namedtuple(
-    'PMMHResult', ['states', 'trace_results'])
+    'PMMHResult', ['states', 'trace_results', 'smc_trace_results'])
 
 
 def particle_marginal_metropolis_hastings(ssm_model,
@@ -48,15 +48,15 @@ def particle_marginal_metropolis_hastings(ssm_model,
             raise NotImplementedError("Must initialize the theta!")
 
         mh_kernel = RandomWalkMetropolis(ssm_model.log_target_dist(observations, num_particles),
-                                               new_state_fn=random_walk_normal_fn(
-                                                   scale=0.3))
+                                         new_state_fn=random_walk_normal_fn(
+                                             scale=1.))
 
         if transformed_bijector is None:
             mh_kernel = mh_kernel
         else:
             mh_kernel = TransformedTransitionKernel(
-                                inner_kernel=mh_kernel,
-                                bijector=transformed_bijector)
+                inner_kernel=mh_kernel,
+                bijector=transformed_bijector)
 
         states, kernels_results = sample_chain(num_results=num_samples,
                                                current_state=init_state,
@@ -65,4 +65,4 @@ def particle_marginal_metropolis_hastings(ssm_model,
                                                kernel=mh_kernel,
                                                seed=seed)
 
-        return return_results(states=states, trace_results=kernels_results)
+        return return_results(states=states, trace_results=kernels_results, smc_trace_results=ssm_model.smc_trace_results)

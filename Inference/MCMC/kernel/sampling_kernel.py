@@ -1,10 +1,13 @@
-"""The minimum Conditional Sampling sampling kernel"""
 import collections
 import tensorflow as tf
 import tensorflow_probability as tfp
 from tensorflow_probability.python.mcmc.internal import util as mcmc_util
 from tensorflow_probability.python.internal import unnest
 from tensorflow_probability.python.internal import prefer_static
+from tensorflow_probability.python.internal import samplers
+from tensorflow_probability.python.internal import tensorshape_util
+from tensorflow_probability.python.mcmc.random_walk_metropolis import random_walk_normal_fn
+from tensorflow_probability.python.internal import distribute_lib
 
 tfd = tfp.distributions  # pylint: disable=no-member
 tfb = tfp.bijectors  # pylint: disable=no-member
@@ -22,7 +25,7 @@ class SamplingKernelResults(
         "SamplingKernelResults",
         [
             "target_log_prob",
-            "inner_results",
+            "seed",
         ],
     ),
 ):
@@ -30,138 +33,141 @@ class SamplingKernelResults(
 
 
 class SamplingKernel(mcmc.TransitionKernel):
-    """Minimal Conditional Sampling Kernel
+    """Minimal conditional sampling Kernel based on specific
     """
 
-    def __init__(self, target_log_prob_fn, kernel_list, name=None):
-        """Build a Conditional Sampling scheme from component kernels.
+    def __init__(self,
+                 target_log_prob_fn,
+                 current_full_states,
+                 full_cond_dist,
+                 sampling_idx,
+                 experimental_shard_axis_names=None,
+                 name=None):
 
-        :param target_log_prob_fn: a function that takes `state` arguments
-                                   and returns the target log probability
-                                   density.
-        :param kernel_list: a list of tuples `(state_part_idx, kernel_make_fn)`.
-                            `state_part_idx` denotes the index (relative to
-                            positional args in `target_log_prob_fn`) of the
-                            state the kernel updates.  `kernel_make_fn` takes
-                            arguments `target_log_prob_fn` and `state`, returning
-                            a `tfp.mcmc.TransitionKernel`.
-                            The length of the kernel list should be the same as the number of parameters
-        :returns: an instance of `GibbsKernel`
-        """
-        # Require to check if all kernel.is_calibrated is True
+        self._target_log_prob_fn = target_log_prob_fn
+        self._sampling_idx = sampling_idx
+        self._name = name
         self._parameters = dict(
             target_log_prob_fn=target_log_prob_fn,
-            kernel_list=kernel_list,
-            name=name,
-        )
+            current_full_states=current_full_states,
+            experimental_shard_axis_names=experimental_shard_axis_names,
+            full_cond_dist=full_cond_dist,
+            sampling_idx=sampling_idx,
+            name=name)
+
+    @property
+    def sampling_idx(self):
+        return self._parameters['sampling_idx']
+
+    @property
+    def target_log_prob_fn(self):
+        return self._parameters['target_log_prob_fn']
+
+    @property
+    def current_full_states(self):
+        return self._parameters['current_full_states']
+
+    @property
+    def full_cond_dist(self):
+        return self._parameters['full_cond_dist']
+
+    @property
+    def name(self):
+        return self._parameters['name']
+
+    @property
+    def parameters(self):
+        """Return `dict` of ``__init__`` arguments and their values."""
+        return self._parameters
 
     @property
     def is_calibrated(self):
         return False
 
-    @property
-    def target_log_prob_fn(self):
-        return self._parameters["target_log_prob_fn"]
+    def one_step(self, current_state, previous_kernel_results, seed=None):
+        with tf.name_scope(mcmc_util.make_name(self.name, 'cond_sampling', 'one_step')):
+            with tf.name_scope('initialize'):
+                if mcmc_util.is_list_like(current_state):
+                    current_state_parts = list(current_state)
+                else:
+                    current_state_parts = [current_state]
+                current_state_parts = [
+                    tf.convert_to_tensor(s, name='current_state')
+                    for s in current_state_parts
+                ]
+
+            seed = samplers.sanitize_seed(seed)  # Retain for diagnostics.
+            state_fn_kwargs = {}
+            if self.experimental_shard_axis_names is not None:
+                state_fn_kwargs['experimental_shard_axis_names'] = (
+                    self.experimental_shard_axis_names)
+
+            next_state_parts = self.full_cond_dist(current_state=current_state_parts, # pylint: disable=not-callable
+                state_parts=self.current_full_states, seed=seed, sampling_idx=self._sampling_idx)
+
+            # User should be using a new_state_fn that does not alter the state size.
+            # This will fail noisily if that is not the case.
+            for next_part, current_part in zip(next_state_parts, self.current_full_states):
+                tensorshape_util.set_shape(next_part, current_part.shape)
+
+            # Compute `target_log_prob` so its available to MetropolisHastings.
+            next_target_log_prob = self.target_log_prob_fn(next_state_parts[self.sampling_idx])  # pylint: disable=not-callable
+
+            return [
+                next_state_parts[self.sampling_idx],
+                SamplingKernelResults(
+                    target_log_prob=next_target_log_prob,
+                    seed=seed,
+                ),
+            ]
+
+    def bootstrap_results(self, init_state):
+        with tf.name_scope(mcmc_util.make_name(
+                self.name, 'cond_sampling', 'bootstrap_results')):
+            if not mcmc_util.is_list_like(init_state):
+                init_state = [init_state]
+            init_state = [tf.convert_to_tensor(x) for x in init_state]
+            init_target_log_prob = self.target_log_prob_fn(*init_state)  # pylint:disable=not-callable
+            return SamplingKernelResults(
+                target_log_prob=init_target_log_prob,
+                # Allow room for one_step's seed.
+                seed=samplers.zeros_seed())
 
     @property
-    def kernel_list(self):
-        return self._parameters["kernel_list"]
+    def experimental_shard_axis_names(self):
+        return self._parameters['experimental_shard_axis_names']
 
-    @property
-    def name(self):
-        return self._parameters["name"]
+    def experimental_with_shard_axes(self, shard_axis_names):
+        return self.copy(experimental_shard_axis_names=shard_axis_names)
 
-    def one_step(self, current_state, previous_results, seed=None):
-        """We iterate over the state elements, calling each kernel in turn.
 
-        The `target_log_prob` is forwarded to the next `previous_results`
-        such that each kernel has a current `target_log_prob` value.
-        Transformations are automatically performed if the kernel is of
-        type tfp.mcmc.TransformedTransitionKernel.
+def cond_sample_fn(inner_sample_dist):
+    """ Conditional sampling function
+    """
 
-        In graph and XLA modes, the for loop should be unrolled.
-        """
-        if mcmc_util.is_list_like(current_state):
-            state_parts = list(current_state)
-        else:
-            state_parts = [current_state]
-            # A list, containing all states in Tensor
+    def _fn(current_state,
+            state_parts,
+            seed,
+            sampling_idx,
+            name=None,
+            experimental_shard_axis_names=None):
+        with tf.name_scope(name or 'ful_cond_fn'):
+            part_seeds = list(samplers.split_seed(seed, n=len(state_parts)))
+            part_seeds = distribute_lib.fold_in_axis_index(
+                part_seeds, experimental_shard_axis_names)
 
-        state_parts = [
-            tf.convert_to_tensor(s, name="current_state") for s in state_parts
-        ]
+            state_parts = [
+                tf.convert_to_tensor(s, name="current_state") for s in state_parts
+            ]
 
-        next_results = []
-        untransformed_target_log_prob = previous_results.target_log_prob
+            sample_state = state_parts[sampling_idx]
+            state_parts.pop(sampling_idx)
 
-        for (state_part_idx, kernel_fn), previous_step_results in zip(
-                self.kernel_list, previous_results.inner_results
-        ):
+            # sometimes sample_state is not necessary, but useful in most cases
+            updated_state = inner_sample_dist(sampling_idx, sample_state, state_parts, part_seeds[sampling_idx])
 
-            def target_log_prob_fn(state_part):
-                #TODO: check this function, this happens before the upddate, why update the state_parts -Qiuliang
-                state_parts[
-                    state_part_idx  # pylint: disable=cell-var-from-loop
-                ] = state_part
-                # Update the latest index
-                return self.target_log_prob_fn(*state_parts)
+            state_parts.insert(sampling_idx, updated_state)
 
-            # kernel_fn is the kernel_make_fn
-            kernel = kernel_fn(target_log_prob_fn, state_parts)
+        return state_parts
 
-            # Forward the current tlp to the kernel.  If the kernel is gradient-based,
-            # we need to calculate fresh gradients, as these cannot easily be forwarded
-            # from the previous Gibbs step.
-            if _has_gradients(previous_step_results):
-                # TODO would be better to avoid re-calculating the whole of
-                # `bootstrap_results` when we just need to calculate gradients.
-                fresh_previous_results = unnest.UnnestingWrapper(
-                    kernel.bootstrap_results(state_parts[state_part_idx])
-                )
-                previous_step_results = unnest.replace_innermost(
-                    previous_step_results,
-                    target_log_prob=fresh_previous_results.target_log_prob,
-                    grads_target_log_prob=fresh_previous_results.grads_target_log_prob,
-                )
-
-            else:
-                previous_step_results = _update_target_log_prob(
-                    previous_step_results,
-                    _maybe_transform_value(
-                        tlp=untransformed_target_log_prob,
-                        state=state_parts[state_part_idx],
-                        kernel=kernel,
-                        direction="inverse",
-                    ),
-                )
-
-            state_parts[state_part_idx], next_kernel_results = kernel.one_step(
-                state_parts[state_part_idx], previous_step_results, seed
-            )
-
-            next_results.append(next_kernel_results)
-
-            # Cache the new tlp for use in the next Gibbs step
-            untransformed_target_log_prob = _maybe_transform_value(
-                tlp=_get_target_log_prob(next_kernel_results),
-                state=state_parts[state_part_idx],
-                kernel=kernel,
-                direction="forward",
-            )
-
-        return (
-            state_parts
-            if mcmc_util.is_list_like(current_state)
-            else state_parts[0],
-            GibbsKernelResults(
-                target_log_prob=untransformed_target_log_prob,
-                inner_results=next_results,  # All intermediate results are recorded, is it necessary?
-            ),
-        )
-
-    def bootstrap_results(self, current_state):
-
-        return SamplingKernelResults(
-            target_log_prob=untransformed_target_log_prob,
-            inner_results=inner_results,
-        )
+    return _fn

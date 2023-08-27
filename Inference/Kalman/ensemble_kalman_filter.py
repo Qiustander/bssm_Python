@@ -1,9 +1,7 @@
 import tensorflow as tf
 import tensorflow_probability as tfp
 from tensorflow_probability.python.internal import prefer_static
-from tensorflow_probability.python.distributions import independent
 from tensorflow_probability.python.distributions import mvn_tril
-from tensorflow_probability.python.distributions import normal
 
 
 tfd = tfp.distributions
@@ -57,8 +55,8 @@ def ensemble_kalman_filter(ssm_model, observations, num_particles, dampling=1):
     prior_samples = ssm_model.initial_state_prior.sample(num_particles)
 
     (filtered_particles, log_marginal_likelihood) = forward_filter_pass(
-        transition_fn=ssm_model.transition_plusnoise_fn,
-        observation_fn=ssm_model.observation_plusnoise_fn,
+        transition_fn=ssm_model.transition_dist,
+        observation_fn=ssm_model.observation_dist,
         observations=observations,
         initial_particles=prior_samples,
         scaling_parameters=(dampling))
@@ -69,7 +67,8 @@ def ensemble_kalman_filter(ssm_model, observations, num_particles, dampling=1):
 
     #one-step prediction
     state_prior_samples = tf.vectorized_map(lambda x:
-                                            ssm_model.transition_plusnoise_fn(x).sample(), filtered_particles[-1, ...])
+                                            ssm_model.transition_dist(prefer_static.size0(observations)-1, x).sample(),
+                                            filtered_particles[-1, ...])
     predicted_means = tf.reduce_mean(state_prior_samples, axis=1)
     predicted_covs = tfp.stats.covariance(
         state_prior_samples, sample_axis=0, event_axis=-1, keepdims=False)

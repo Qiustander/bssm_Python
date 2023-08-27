@@ -67,6 +67,7 @@ class NonlinearSSM(object):
             self._transition_dist = transition_dist
             self._transition_fn = transition_fn
             self._observation_fn = observation_fn
+            self.smc_trace_results = []
 
             dtype_list = [initial_state_prior,
                           observation_dist,

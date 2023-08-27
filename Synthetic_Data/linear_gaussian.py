@@ -6,19 +6,20 @@ from Models.ssm_nlg import NonlinearSSM
 Univariate and Multivariate linear Gaussian model
 """
 
-
-def gen_data(testcase='multivariate', num_timesteps=200, state_dim=1, observed_dim=1):
+def gen_data(testcase='multivariate',
+             num_timesteps=200, state_dim=1,
+             observed_dim=1):
 
     if testcase == 'univariate':
         # Univariate
         state_dim = 1
         observed_dim = 1
-        state_mtx_noise = 1.
+        state_mtx_noise = 0.9
         obs_mtx_noise = 0.25
-        transition_matrix = 0.7
-        observation_matrix = 1.
+        transition_matrix = 0.6
+        observation_matrix = 1
         prior_mean = np.zeros(shape=state_dim)
-        prior_cov = np.diag(state_mtx_noise/np.sqrt(1. - transition_matrix**2)*np.ones(shape=[state_dim, ]))
+        prior_cov = np.diag(state_mtx_noise**2/np.sqrt(1. - transition_matrix**2)*np.ones(shape=[state_dim, ]))
 
     elif testcase == 'multivariate':
         # Multivariate

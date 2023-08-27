@@ -1,6 +1,4 @@
 import types
-from Models.ssm_nlg import NonlinearSSM
-from Models.ssm_nlg import nonlinear_fucntion
 from Synthetic_Data.linear_gaussian import gen_data
 import matplotlib.pyplot as plt
 from sklearn.metrics import mean_squared_error
@@ -10,7 +8,6 @@ import tensorflow as tf
 import numpy as np
 import tensorflow_probability as tfp
 from tensorflow_probability.python.internal import prefer_static as ps
-from tensorflow_probability.python.mcmc.simple_step_size_adaptation import SimpleStepSizeAdaptation
 
 tfd = tfp.distributions
 tfb = tfp.bijectors
@@ -25,7 +22,7 @@ logging.basicConfig(level=logging.INFO)
 VALIDATE_ARGS = True
 num_timesteps = 100
 num_particles = 300
-num_samples = 8000
+num_samples = 4000
 particle_method = 'bsf'
 state_dim = 1
 observation_dim = 1
@@ -54,11 +51,15 @@ class LinearGaussianSSM:
             if isinstance(attr_value, property):
                 setattr(LinearGaussianSSM, attr_name, property(attr_value.fget, attr_value.fset, attr_value.fdel))
 
+        # Currently, we could not trace the SMC results in the log_likelihood because of the wrapped transformed transition kernel.
     """Define the log_prior
     """
 
     def initial_theta(self):
-        return [tf.constant([[1.]]), tf.constant([[1.]])]
+        """
+        Returns: initial precision matrix estimation
+        """
+        return [tf.constant([[0.5+np.random.uniform()]]), tf.constant([[0.5+np.random.uniform()]])]
 
     def log_theta_prior(self, sigma_x, sigma_y):
         sigma_x_prior = tfd.WishartTriL(
@@ -80,23 +81,19 @@ class LinearGaussianSSM:
         precision_x = tf.linalg.cholesky(sigma_x)
         precision_y = tf.linalg.cholesky(sigma_y)
         covariances_x = tf.linalg.cholesky_solve(
-            precision_x, tf.linalg.eye(1))
+            precision_x, tf.linalg.eye(ps.shape(sigma_x)[-1]))
         covariances_y = tf.linalg.cholesky_solve(
-            precision_y, tf.linalg.eye(1))
+            precision_y, tf.linalg.eye(ps.shape(sigma_y)[-1]))
 
-        self._transition_noise_matrix = covariances_x
-        self._observation_noise_matrix = covariances_y
+        self._transition_noise_matrix = tf.linalg.cholesky(covariances_x)
+        self._observation_noise_matrix = tf.linalg.cholesky(covariances_y)
 
         self._transition_dist = lambda t, x: tfd.MultivariateNormalTriL(
             loc=self.transition_fn(t, x),
-            scale_tril=tf.cond(tf.equal(tf.size(self._transition_noise_matrix), 1),
-                               lambda: tf.sqrt(self._transition_noise_matrix),
-                               lambda: tf.linalg.cholesky(self._transition_noise_matrix)))
+            scale_tril=self._transition_noise_matrix)
         self._observation_dist = lambda t, x: tfd.MultivariateNormalTriL(
             loc=self.observation_fn(t, x),
-            scale_tril=tf.cond(tf.equal(tf.size(self._observation_noise_matrix), 1),
-                               lambda: tf.sqrt(self._observation_noise_matrix),
-                               lambda: tf.linalg.cholesky(self._observation_noise_matrix))
+            scale_tril=self._observation_noise_matrix
         )
 
     """Define data likelihood for ssm model
@@ -124,8 +121,10 @@ class LinearGaussianSSM:
                     trace_criterion_fn=lambda *_: True)
                 return result
 
-            [particles, log_weights, accumulated_log_marginal_likelihood] = _run_smc()
-            return accumulated_log_marginal_likelihood[-1] \
+            traced_results = _run_smc()
+            #TODO: could not trace the results because of out of scope
+            # self.smc_trace_results.append(traced_results)
+            return traced_results[-1][-1] \
                    + self.log_theta_prior(sigma_x, sigma_y)
 
         return _log_likelihood
@@ -134,7 +133,7 @@ class LinearGaussianSSM:
 linear_gaussian_ssm = LinearGaussianSSM(ssm_model)
 
 
-# @tf.function
+@tf.function
 def run_mcmc():
 
     #tfb.Blockwise is opposite to tfb.Chain.
@@ -145,7 +144,7 @@ def run_mcmc():
         # step 2: exponentiate the diagonals
         tfb.TransformDiagonal(tfb.Exp(validate_args=VALIDATE_ARGS)),
         # step 1: map a vector to a lower triangular matrix
-        # tfb.FillTriangular(validate_args=VALIDATE_ARGS),
+        tfb.FillTriangular(validate_args=VALIDATE_ARGS),
     ])
 
     unconstrained_to_precision = tfb.JointMap(
