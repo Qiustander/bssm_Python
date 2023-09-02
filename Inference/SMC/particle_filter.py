@@ -17,13 +17,11 @@
 import numpy as np
 import tensorflow as tf
 from . import smc_kernel
-# from tensorflow_probability.python.experimental.mcmc import sequential_monte_carlo_kernel as smc_kernel
 from . import resampling as weighted_resampling
 from tensorflow_probability.python.internal import assert_util
 from tensorflow_probability.python.internal import docstring_util
 from tensorflow_probability.python.internal import loop_util
 from tensorflow_probability.python.internal import prefer_static as ps
-from tensorflow_probability.python.internal import tensorshape_util
 from tensorflow_probability.python.internal import samplers
 
 __all__ = [
@@ -321,7 +319,7 @@ def _particle_filter_initial_weighted_particles(observations,
                                                         transition_fn, observation_fn,
                                                         transition_fn_grad, observation_fn_grad)
         else:
-            initial_state_dist = initial_state_proposal(initial_state_prior, observation)
+            initial_state_dist = initial_state_proposal
         initial_state = initial_state_dist.sample(num_particles, seed=seed)
         initial_log_weights = (initial_state_prior.log_prob(initial_state) -
                                initial_state_dist.log_prob(initial_state))
@@ -374,8 +372,9 @@ def _particle_filter_propose_and_update_log_weights_fn(
                                             transition_fn, observation_fn,
                                             transition_fn_grad, observation_fn_grad)
             else:
-                proposal_dist = proposal_fn(step, particles, observation,
-                                            transition_fn, observation_fn)
+                # proposal_dist = proposal_fn(step, particles, observation,
+                #                             transition_fn, observation_fn)
+                proposal_dist = proposal_fn(step, particles)
             assertions += _assert_batch_shape_matches_weights(
                 distribution=proposal_dist,
                 weights_shape=ps.shape(log_weights),
@@ -397,7 +396,7 @@ def _particle_filter_propose_and_update_log_weights_fn(
             return smc_kernel.WeightedParticles(
                 particles=proposed_particles,
                 log_weights=log_weights + _compute_observation_log_weights(
-                    step + 1, proposed_particles, observations, observation_fn,
+                    step+1, proposed_particles, observations, observation_fn,
                     num_transitions_per_observation=num_transitions_per_observation))
 
     return propose_and_update_log_weights_fn
@@ -442,7 +441,6 @@ def _compute_observation_log_weights(step,
             lambda x, step=step: tf.gather(x, observation_idx), observations)
 
         log_weights = observation_fn(step, particles).log_prob(observation)
-        # tensorshape_util.set_shape(log_weights, ps.shape(particles)[:-1])
 
         return tf.where(step_has_observation,
                         log_weights,
@@ -486,33 +484,3 @@ def _assert_batch_shape_matches_weights(distribution, weights_shape, diststr):
         assertions = [assert_util.assert_equal(a, b, message=msg)
                       for a, b in zip(shapes[1:], shapes[:-1])]
     return assertions
-
-# def _combine_initial_state(init_seed, smc_kernel, init_state, traced_result):
-#     """
-#     Combine the initial state x_0 and the traced states x_{1:T}
-#     Args:
-#         init_seed: seed
-#         smc_kernel: smc_kernel
-#         init_state:
-#         traced_result:
-#     Returns:
-#         all_traced_states
-#     """
-#     initial_state = (init_seed,
-#                      init_state,
-#                      smc_kernel.bootstrap_results(init_state)),
-#     trace_fn = lambda seed_state_results: default_trace_fn(*seed_state_results[1:])
-#     initial_state = tf.nest.map_structure(
-#         lambda x: tf.convert_to_tensor(x, name='initial_state'),
-#         initial_state, expand_composites=True)
-#     initial_trace = _convert_variables_to_tensors(trace_fn(initial_state))
-#
-#     return tf.nest.map_structure(lambda k, v: tf.concat([k, v], axis=0), initial_trace, traced_result)
-#
-#
-#
-# def _convert_variables_to_tensors(values):
-#   """Read `tf.Variables` in `values` and keep other objects unchanged."""
-#   return tf.nest.map_structure(
-#       lambda x: tf.convert_to_tensor(x) if isinstance(x, tf.Variable) else x,
-#       values)

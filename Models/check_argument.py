@@ -1,4 +1,5 @@
 import numpy as np
+import tensorflow as tf
 
 
 def check_y(x, fill_missing=0., filling=True):
@@ -16,6 +17,8 @@ def check_y(x, fill_missing=0., filling=True):
         raise TypeError("Scalar is not allowed.")
     elif type(x) in [list, tuple]:
         x = np.array(x)
+    if isinstance(x, tf.Tensor):
+        x = x.numpy()
     if np.isinf(x).any():
         raise TypeError("Argument 'y' must contain only finite or NA values.")
     if not np.isnan(x).all():
@@ -33,50 +36,8 @@ def check_y(x, fill_missing=0., filling=True):
     return x.shape, x
 
 
-# For basic time series structure
-
-def check_period(x, n):
-    if not isinstance(x, int):
-        raise ValueError("Argument 'period' should be a single integer.")
-    else:
-        if x < 3:
-            raise ValueError("Argument 'period' should be an integer larger than 2.")
-        if x >= n:
-            raise ValueError("Period should be less than the number of time points.")
-
-
-def check_distribution(x, distribution):
-    """Checks that observations are compatible with their distributions are made.
-    Args:
-        x (np.array): input time serie
-        distribution (List[str]): list of distributions
-
-    """
-    for i in range(x.shape[1]):
-        if distribution[i] != "gaussian" and (np.logical_not(np.isnan(x[:, i])) & (x[:, i] < 0)).any():
-            raise ValueError(f"Negative values not allowed for {distribution[i]} distribution.")
-        else:
-            if distribution[i] in ["negative binomial", "binomial", "poisson"]:
-                finite_x = x[:, i][np.isfinite(x[:, i])]
-                if np.any((finite_x != finite_x.astype(int))):
-                    raise ValueError(f"Non-integer values not allowed for {distribution[i]} distribution.")
-
-
-def check_sd(x, type, add_prefix=True):
-    if add_prefix:
-        param = f"sd_{type}"
-    else:
-        param = type
-
-    if not type(x) in [np.ndarray, float, int]:
-        raise ValueError(f"Argument {param} must be numeric.")
-    if x < 0:
-        raise ValueError(f"Argument {param} must be non-negative.")
-    if np.isinf(x):
-        raise ValueError(f"Argument {param} must be finite.")
-
-
 def check_mu(x):
+
     if isinstance(x, np.ndarray) and len(x) == 1:
         return x
     if type(x) in [float, int, list, np.float32, np.float64]:
@@ -106,6 +67,8 @@ def check_rho(x):
             x = np.array(x)[None]
         elif type(x) in [list, tuple]:
             x = np.array(x)
+        elif isinstance(x, tf.Tensor):
+            x = x.numpy()
     except:
         raise TypeError("Must be numeric")
     if len(x) != 1:
@@ -147,6 +110,8 @@ def check_input_obs(x, p, n):
     else:
         if type(x) in [float, int, list, np.float32, np.float64]:
             x = np.array(x)
+        if isinstance(x, tf.Tensor):
+            x = x.numpy()
         elif not isinstance(x, np.ndarray):
             raise ValueError("input obs must be numeric.")
         x = x.squeeze()
@@ -186,6 +151,8 @@ def check_input_state(x, m, n):
     else:
         if type(x) in [float, int, list, np.float32, np.float64]:
             x = np.array(x)
+        if isinstance(x, tf.Tensor):
+            x = x.numpy()
         elif not isinstance(x, np.ndarray):
             raise ValueError("input state must be numeric.")
         x = x.squeeze()
@@ -215,6 +182,8 @@ def check_obs_mtx_noise(x, p, n):
         raise ValueError("Length of time series n must larger than 1.")
     if type(x) in [float, int, list, np.float32, np.float64]:
         x = np.array(x)
+    if isinstance(x, tf.Tensor):
+        x = x.numpy()
     elif not isinstance(x, np.ndarray):
         raise ValueError("obs noise std matrix must be numeric.")
     x = x.squeeze()
@@ -259,6 +228,8 @@ def check_state_noise(x, m, n):
         raise ValueError("Length of time series n must larger than 1.")
     if type(x) in [float, int, list, np.float32, np.float64]:
         x = np.array(x)
+    if isinstance(x, tf.Tensor):
+        x = x.numpy()
     elif not isinstance(x, np.ndarray):
         raise ValueError("state noise must be numeric.")
     x = x.squeeze()
@@ -316,6 +287,8 @@ def check_obs_mtx(x, p, n, m):
             x = np.array(x)
         else:
             raise ValueError(error_case(2))
+    if isinstance(x, tf.Tensor):
+        x = x.numpy()
     elif not isinstance(x, np.ndarray):
         raise TypeError(error_case(1))
     if len(x.shape) == 3 and x.shape[-1] == 1:  # p m 1,
@@ -377,6 +350,8 @@ def check_state_mtx(x, m, n):
             x = np.reshape(np.array(x), (1, 1))
         else:
             raise ValueError(error_case(2))
+    if isinstance(x, tf.Tensor):
+        x = x.numpy()
     elif not isinstance(x, np.ndarray):
         raise TypeError(error_case(1))
     if len(x.shape) == 1 and m != 1: raise ValueError(error_case(2))
@@ -414,6 +389,8 @@ def check_prior_mean(x, m):
     else:
         if type(x) in [float, int]:
             x = np.array(x)
+        if isinstance(x, tf.Tensor):
+            x = x.numpy()
         elif not isinstance(x, np.ndarray):
             raise TypeError("prior mean must be numeric.")
         if x.size == 1:
@@ -439,6 +416,8 @@ def check_prior_cov(x, m):
     else:
         if type(x) in [float, int, list, np.float32, np.float64]:
             x = np.array(x)
+        if isinstance(x, tf.Tensor):
+            x = x.numpy()
         elif not isinstance(x, np.ndarray):
             raise TypeError("prior covariance must be numeric.")
 
@@ -452,110 +431,3 @@ def check_prior_cov(x, m):
 
     return x
 
-
-# Check Regression Model
-
-def check_xreg(x, n):
-    """Check matrix containing covariates with number of rows matching the length of observation y.
-    Args:
-        x:
-        n:
-
-    Returns:
-
-    """
-    if x.shape[0] not in (1, n):
-        raise ValueError("Number of rows in xreg is not equal to the length of the series y.")
-    if not np.isfinite(x).all():
-        raise ValueError("Argument xreg must contain only finite values.")
-
-
-def check_beta(x, k):
-    """
-    Check A prior for the regression coefficients.
-    Should be a vector of prior function (in case of multiple coefficients) or missing in case of no covariates.
-    Args:
-        x:
-        k:
-
-    Returns:
-
-    """
-    if not np.issubdtype(x.dtype, np.number):
-        raise ValueError("'beta' must be numeric.")
-    if len(x) != k:
-        raise ValueError("Number of coefficients in beta is not equal to the number of columns of xreg.")
-    if not np.isfinite(x).all():
-        raise ValueError("Argument 'beta' must contain only finite values.")
-
-
-def check_positive_const(x, y, multivariate=False):
-    """
-    Check the matrix of positive constants u for non-Gaussian models
-     (of same dimensions as y).
-    Args:
-        x:
-        y:
-        multivariate:
-
-    Returns:
-
-    """
-    if x is None:
-        x = np.ones((y.shape[0]))
-    if (x < 0).any():
-        raise ValueError("All values of 'u' must be non-negative.")
-    if multivariate:
-        if len(x) == 1:
-            x = np.ones(y.shape)
-        if not np.issubdtype(x.dtype, np.number):
-            raise ValueError("Argument 'u' must be a numeric matrix.")
-        if not np.array_equal(np.shape(y), np.shape(x)):
-            raise ValueError("Dimensions of 'y' and 'u' do not match.")
-    else:  # univariate
-        if len(x) == 1:
-            x = np.repeat(x, len(y))
-        if not np.issubdtype(x.dtype, np.number):
-            raise ValueError("Argument 'u' must be a numeric vector.")
-        if len(x) != len(y):
-            raise ValueError("Lengths of 'u' and 'y' do not match.")
-    if not np.isfinite(x).all():
-        raise ValueError("Argument 'u' must contain only finite values.")
-
-    return x
-
-
-# Check model inference
-def check_missingness(x):
-    """Check the misingness arguments for the mcmc
-    Args:
-        x: bssm_model
-    """
-    if not x.model_name in ["ssm_nlg", "ssm_sde"]:
-        if not hasattr(x, "prior_parameters"):
-            for attribute, value in x.__dict__.items():
-                if attribute not in ["y", "update_fn", "prior_fn"] and np.isnan(value):
-                    raise ValueError("Missing values not allowed in the model object "
-                                     "(except in component 'y').")
-        else:
-            for attribute, value in x.__dict__.items():
-                if attribute not in ["y", "prior_parameters"] and np.isnan(value):
-                    raise ValueError("Missing values not allowed in the model object "
-                                     "(except in components 'y' and 'prior_parameters').")
-
-
-def check_intmax(x, postivive=True, max_val=1e5):
-    """Chcek whether is non-negative/negative integer
-
-    Args:
-        x: input scalar
-
-    Returns:
-
-    """
-    if not (isinstance(x, int) and
-            (x >= 0 if postivive else x < 0)):
-        raise ValueError(f"should be a {str('non-negative') if postivive else str('non-positive')} "
-                         f"integer.")
-    if x > max_val:
-        raise ValueError('The input number exceeds the maximum range.')

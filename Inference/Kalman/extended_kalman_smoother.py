@@ -3,11 +3,12 @@ import tensorflow_probability as tfp
 from tensorflow_probability.python.internal import distribution_util
 from tensorflow_probability.python.math import linalg
 from .extended_kalman_filter import extended_kalman_filter
+from tensorflow_probability.python.internal import prefer_static as ps
 
 tfd = tfp.distributions
 
 
-# @tf.function
+@tf.function
 def extended_kalman_smoother(ssm_model, observations):
     """ Conduct the extended Kalman Smoother
     Args:
@@ -35,6 +36,7 @@ def extended_kalman_smoother(ssm_model, observations):
 
     # The means are assumed to be vectors. Adding a dummy index to
     # ensure the `matmul` op working smoothly.
+
     filtered_means = filtered_means[..., tf.newaxis]
     predicted_means = predicted_means[..., tf.newaxis]
 
@@ -84,7 +86,7 @@ def backward_smoothing_pass(transition_fn_grad, filtered_means, filtered_covs,
 
     initial_backward_mean = predicted_means[-1, ...]
     initial_backward_cov = predicted_covs[-1, ...]
-    last_time_step = tf.ones([filtered_means.shape[0]])
+    last_time_step = ps.size0(filtered_means)-1
 
     (smoothed_means, smoothed_covs, time_step) = tf.scan(update_step_fn,
                                               elems=(filtered_means,
@@ -199,8 +201,9 @@ def backward_smoothing_update(filtered_mean,
     #      = (P^{-1} * T * F)'
     #      = (P^{-1} * tmp_gain_cov) '
     #      = (P \ tmp_gain_cov)'
-    # TODO: need to revise the grad. Not only for batch
-    grad_mean = transition_fn_grad(time_step, filtered_mean)
+
+    # reduce the dummy index to conduct the jacobian
+    grad_mean = transition_fn_grad(time_step, tf.squeeze(filtered_mean, axis=-1))
     tmp_gain_cov = tf.linalg.LinearOperatorFullMatrix(grad_mean).matmul(filtered_cov)
     if latent_size_is_static_and_scalar:
         gain_transpose = tmp_gain_cov / predicted_cov

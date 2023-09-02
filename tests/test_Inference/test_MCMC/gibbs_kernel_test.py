@@ -26,7 +26,7 @@ class TestGibbsKernel(test_util.TestCase):
         def logp(x1, x2):
             return target.log_prob([x1, x2])
 
-        def kernel_make_fn(target_log_prob_fn, state):
+        def kernel_make_fn(target_log_prob_fn, state, state_part_idx):
             return tfp.mcmc.RandomWalkMetropolis(
                 target_log_prob_fn=target_log_prob_fn
             )
@@ -61,7 +61,7 @@ class TestGibbsKernel(test_util.TestCase):
         def logp(x1, x2):
             return target.log_prob([x1, x2])
 
-        def kernel_make_fn(target_log_prob_fn, state):
+        def kernel_make_fn(target_log_prob_fn, state, state_part_idx):
             return tfp.mcmc.RandomWalkMetropolis(
                 target_log_prob_fn=target_log_prob_fn
             )
@@ -87,7 +87,7 @@ class TestGibbsKernel(test_util.TestCase):
         def logp(x1, x2):
             return target.log_prob([x1, x2])
 
-        def kernel_make_fn(target_log_prob_fn, state):
+        def kernel_make_fn(target_log_prob_fn, state, state_part_idx):
             inner_kernel = tfp.mcmc.RandomWalkMetropolis(
                 target_log_prob_fn=target_log_prob_fn
             )
@@ -117,7 +117,7 @@ class TestGibbsKernel(test_util.TestCase):
         def logp(x1, x2):
             return target.log_prob([x1, x2])
 
-        def kernel_make_rwm_fn(target_log_prob_fn, state):
+        def kernel_make_rwm_fn(target_log_prob_fn, state, state_part_idx):
             inner_kernel = tfp.mcmc.RandomWalkMetropolis(
                 target_log_prob_fn=target_log_prob_fn
             )
@@ -125,7 +125,7 @@ class TestGibbsKernel(test_util.TestCase):
                 inner_kernel=inner_kernel, bijector=tfp.bijectors.Exp()
             )
 
-        def kernel_make_hmc_fn(target_log_prob_fn, state):
+        def kernel_make_hmc_fn(target_log_prob_fn, state, state_part_idx):
             inner_kernel = tfp.mcmc.HamiltonianMonteCarlo(
                 target_log_prob_fn=target_log_prob_fn,
                 step_size=0.1,
@@ -155,7 +155,7 @@ class TestGibbsKernel(test_util.TestCase):
         def logp(x1, x2):
             return target.log_prob([x1, x2])
 
-        def kernel_make_fn(target_log_prob_fn, state):
+        def kernel_make_fn(target_log_prob_fn, state, state_part_idx):
             return tfp.mcmc.RandomWalkMetropolis(
                 target_log_prob_fn=target_log_prob_fn
             )

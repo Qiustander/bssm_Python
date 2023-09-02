@@ -3,10 +3,9 @@ import tensorflow_probability as tfp
 from tensorflow_probability.python.internal import prefer_static
 from tensorflow_probability.python.distributions import mvn_tril
 
-
 tfd = tfp.distributions
 
-@tf.function
+
 def ensemble_kalman_filter(ssm_model, observations, num_particles, dampling=1):
     """Applies an Ensemble Kalman Filter to observed data.
 
@@ -54,7 +53,9 @@ def ensemble_kalman_filter(ssm_model, observations, num_particles, dampling=1):
 
     prior_samples = ssm_model.initial_state_prior.sample(num_particles)
 
-    (filtered_particles, log_marginal_likelihood) = forward_filter_pass(
+    (filtered_particles,
+     predicted_particles,
+     log_marginal_likelihood) = forward_filter_pass(
         transition_fn=ssm_model.transition_dist,
         observation_fn=ssm_model.observation_dist,
         observations=observations,
@@ -65,16 +66,18 @@ def ensemble_kalman_filter(ssm_model, observations, num_particles, dampling=1):
     filtered_covs = tfp.stats.covariance(
         filtered_particles, sample_axis=1, event_axis=-1, keepdims=False)
 
-    #one-step prediction
+    # one-step prediction
     state_prior_samples = tf.vectorized_map(lambda x:
-                                            ssm_model.transition_dist(prefer_static.size0(observations)-1, x).sample(),
-                                            filtered_particles[-1, ...])
-    predicted_means = tf.reduce_mean(state_prior_samples, axis=1)
+                                            ssm_model.transition_dist(prefer_static.size0(observations) - 1,
+                                                                      x).sample(),
+                                            filtered_particles[-1, ...])[tf.newaxis]
+    predicted_means = tf.reduce_mean(
+        tf.concat([predicted_particles, state_prior_samples], axis=0), axis=1)
     predicted_covs = tfp.stats.covariance(
-        state_prior_samples, sample_axis=0, event_axis=-1, keepdims=False)
+        state_prior_samples, sample_axis=1, event_axis=-1, keepdims=False)
 
     return (filtered_means, filtered_covs,
-            predicted_means, predicted_covs)
+            predicted_means, predicted_covs, log_marginal_likelihood)
 
 
 def forward_filter_pass(transition_fn,
@@ -106,10 +109,18 @@ def forward_filter_pass(transition_fn,
         tf.nest.flatten(observations)[0])
     dummy_zeros = tf.zeros(observations_shape[1:-1])
 
-    filtered_particles = tf.scan(update_step_fn, elems=observations,
-                                         initializer=(initial_particles, dummy_zeros))
+    (filtered_particles,
+     predicted_particles,
+     log_marginal_likelihood, _) = tf.scan(update_step_fn,
+                                           elems=observations,
+                                           initializer=(initial_particles,
+                                                        initial_particles,
+                                                        dummy_zeros,
+                                                        dummy_zeros))
 
-    return filtered_particles
+    return (filtered_particles,
+            predicted_particles,
+            log_marginal_likelihood)
 
 
 def build_forward_filter_step(transition_fn,
@@ -130,12 +141,17 @@ def build_forward_filter_step(transition_fn,
         dampling = scaling_parameters
 
         (filtered_particles,
-         log_marginal_likelihood) = _ensemble_kalman_filter_one_step(filtered_ensembles, observations,
-                                                                     transition_fn=transition_fn,
-                                                                     observation_fn=observation_fn,
-                                                                     dampling=dampling)
+         predicted_particles,
+         log_marginal_likelihood,
+         time_step) = _ensemble_kalman_filter_one_step(filtered_ensembles, observations,
+                                                       transition_fn=transition_fn,
+                                                       observation_fn=observation_fn,
+                                                       dampling=dampling)
 
-        return (filtered_particles, log_marginal_likelihood)
+        return (filtered_particles,
+                predicted_particles,
+                log_marginal_likelihood,
+                time_step)
 
     return forward_pass_step
 
@@ -160,17 +176,18 @@ def _ensemble_kalman_filter_one_step(
     Returns:
     updated_state: filtered ensembles
     """
+    time_step = filtered_ensembles[-1]
 
     # If observations are scalar, we can avoid some matrix ops.
     observation_size_is_static_and_scalar = (observation.shape[-1] == 1)
 
     ############### Estimation
     state_prior_samples = tf.vectorized_map(lambda x:
-                                            transition_fn(x).sample(), filtered_ensembles[0])
+                                            transition_fn(time_step, x).sample(), filtered_ensembles[0])
 
     ########### Correction
     correct_samples = tf.vectorized_map(lambda x:
-                                        observation_fn(x).sample(), state_prior_samples)
+                                        observation_fn(time_step, x).sample(), state_prior_samples)
 
     # corrected_mean = tf.reduce_mean(correct_samples)
     corrected_cov = _covariance(correct_samples)
@@ -207,6 +224,7 @@ def _ensemble_kalman_filter_one_step(
         # added_term = [Cov(G(X)) + Γ]⁻¹ [Y - G(X) - η]
         added_term = covriance_yy.solvevec(
             observation_particles_diff)
+
         # added_term
         #  = covariance_between_state_and_predicted_observations @ added_term
         #  = Cov(X, G(X)) [Cov(G(X)) + Γ]⁻¹ [Y - G(X) - η]
@@ -219,34 +237,35 @@ def _ensemble_kalman_filter_one_step(
         new_particles = tf.nest.map_structure(
             lambda x, a: x + dampling * a, state_prior_samples, added_term)
 
-
-    predicted_observations = observation_fn(state_prior_samples).mean()
+    predicted_observations = observation_fn(time_step, state_prior_samples).mean()
     observation_dist = mvn_tril.MultivariateNormalTriL(
         loc=tf.reduce_mean(predicted_observations, axis=0),  # ensemble mean
         # Cholesky(Cov(G(X)) + Γ), where Cov(..) is the ensemble covariance.
         scale_tril=tf.linalg.cholesky(
             _covariance(predicted_observations) +
-            _linop_covariance(observation_fn(state_prior_samples)).to_dense()))
+            _linop_covariance(observation_fn(time_step, state_prior_samples)).to_dense()))
 
     log_marginal_likelihood = observation_dist.log_prob(observation)
 
-    return (new_particles, log_marginal_likelihood)
+    return (new_particles,
+            state_prior_samples,
+            log_marginal_likelihood,
+            time_step + 1)
 
 
 def _linop_covariance(dist):
-  """LinearOperator backing Cov(dist), without unnecessary broadcasting."""
-  # This helps, even if we immediately call .to_dense(). Why?
-  # Simply calling dist.covariance() would broadcast up to the full batch shape.
-  # Instead, we want the shape to be that of the linear operator only.
-  # This (i) saves memory and (ii) allows operations done with this operator
-  # to be more efficient.
-  if hasattr(dist, 'cov_operator'):
-    cov = dist.cov_operator
-  else:
-    cov = dist.scale.matmul(dist.scale.H)
-  cov._is_positive_definite = True  # pylint: disable=protected-access
-  cov._is_self_adjoint = True  # pylint: disable=protected-access
-  return cov
+    """LinearOperator backing Cov(dist), without unnecessary broadcasting."""
+    # Simply calling dist.covariance() would broadcast up to the full batch shape.
+    # Instead, we want the shape to be that of the linear operator only.
+    # This (i) saves memory and (ii) allows operations done with this operator
+    # to be more efficient.
+    if hasattr(dist, 'cov_operator'):
+        cov = dist.cov_operator
+    else:
+        cov = dist.scale.matmul(dist.scale.H)
+    cov._is_positive_definite = True  # pylint: disable=protected-access
+    cov._is_self_adjoint = True  # pylint: disable=protected-access
+    return cov
 
 
 def _covariance(x, y=None):

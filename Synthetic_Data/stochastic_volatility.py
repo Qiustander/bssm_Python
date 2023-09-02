@@ -2,7 +2,7 @@ import tensorflow as tf
 import numpy as np
 from Models.ssm_nlg import NonlinearSSM
 """
-Univariate and Multivariate linear Gaussian model
+Univariate and Multivariate Stochastic Volativity model
 """
 
 def gen_data(testcase='multivariate',

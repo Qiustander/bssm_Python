@@ -14,10 +14,12 @@ def infer_trajectories(ssm_model,
                        observations,
                        num_particles,
                        particle_filter_name,
+                       initial_state_proposal=None,
                        resample_ess=0.5,
                        resample_fn='systematic',
                        seed=None,
-                       name=None):  # pylint: disable=g-doc-args
+                       name=None,
+                       is_guided=False):  # pylint: disable=g-doc-args
     """Use particle filtering to sample from the posterior over trajectories.
 
   ${particle_filter_arg_str}
@@ -53,29 +55,33 @@ def infer_trajectories(ssm_model,
     with tf.name_scope(name or 'infer_trajectories') as name:
         pf_seed, resample_seed = samplers.split_seed(
             seed, salt='infer_trajectories')
-        try:
-            if particle_filter_name == 'ekf':
-                from .extend_kalman_particle_filter import extended_kalman_particle_filter
-                infer_result = extended_kalman_particle_filter(ssm_model=ssm_model,
-                                                               observations=observations,
-                                                               resample_fn='systematic',
-                                                               resample_ess=resample_ess,
-                                                               num_particles=num_particles)
-            elif particle_filter_name == 'bsf':
-                from .bootstrap_particle_filter import bootstrap_particle_filter
-                infer_result = bootstrap_particle_filter(ssm_model=ssm_model,
-                                                         resample_fn='systematic',
-                                                         observations=observations,
-                                                         resample_ess=resample_ess,
-                                                         num_particles=num_particles)
-            elif particle_filter_name == 'apf':
-                from .auxiliary_particle_filter import auxiliary_particle_filter
-                infer_result = auxiliary_particle_filter(ssm_model=ssm_model,
-                                                         resample_fn='systematic',
-                                                         observations=observations,
-                                                         resample_ess=resample_ess,
-                                                         num_particles=num_particles)
-        except:
+
+        if particle_filter_name == 'ekf':
+            from .extend_kalman_particle_filter import extended_kalman_particle_filter
+            infer_result = extended_kalman_particle_filter(ssm_model=ssm_model,
+                                                           observations=observations,
+                                                           resample_fn='systematic',
+                                                           resample_ess=resample_ess,
+                                                           initial_state_proposal=initial_state_proposal,
+                                                           num_particles=num_particles)
+        elif particle_filter_name == 'bsf':
+            from .bootstrap_particle_filter import bootstrap_particle_filter
+            infer_result = bootstrap_particle_filter(ssm_model=ssm_model,
+                                                     resample_fn='systematic',
+                                                     observations=observations,
+                                                     resample_ess=resample_ess,
+                                                     initial_state_proposal=initial_state_proposal,
+                                                     num_particles=num_particles)
+        elif particle_filter_name == 'apf':
+            from .auxiliary_particle_filter import auxiliary_particle_filter
+            infer_result = auxiliary_particle_filter(ssm_model=ssm_model,
+                                                     resample_fn='systematic',
+                                                     observations=observations,
+                                                     resample_ess=resample_ess,
+                                                     initial_state_proposal=initial_state_proposal,
+                                                     num_particles=num_particles,
+                                                     is_gudied=is_guided)
+        else:
             raise NotImplementedError('No particle method')
 
         particles = infer_result.particles

@@ -21,7 +21,6 @@ def auxiliary_particle_filter(ssm_model,
                               num_particles,
                               is_gudied=False,
                               initial_state_proposal=None,
-                              proposal_fn=None, # Could use other proposal function
                               resample_fn='stratified',
                               resample_ess=0.5,
                               unbiased_gradients=True,
@@ -67,7 +66,7 @@ def auxiliary_particle_filter(ssm_model,
             observation_fn=ssm_model.observation_dist,
             num_particles=num_particles,
             initial_state_proposal=initial_state_proposal,
-            proposal_fn=proposal_fn,
+            proposal_fn=ssm_model.proposal_dist,
             resample_fn=resample_fn,
             resample_ess_num=resample_ess,
             unbiased_gradients=unbiased_gradients,
@@ -77,10 +76,12 @@ def auxiliary_particle_filter(ssm_model,
             seed=seed,
             name=name)
 
+        # state_dim = ssm_model.initial_state_prior.sample().shape[0]
         filtered_mean, predicted_mean, \
             filtered_variance, predicted_variance = posterior_mean_var(particles,
                                                                        log_weights,
                                                                        tf.get_static_value(tf.shape(observations))[0])
+
         return return_results(filtered_mean=filtered_mean, predicted_mean=predicted_mean,
                               filtered_variance=filtered_variance, predicted_variance=predicted_variance,
                               incremental_log_marginal_likelihoods=incremental_log_marginal_likelihoods,

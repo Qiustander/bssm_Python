@@ -2,8 +2,8 @@ import tensorflow as tf
 from tensorflow_probability.python.mcmc import sample_chain, TransformedTransitionKernel
 from tensorflow_probability.python.mcmc.random_walk_metropolis import random_walk_normal_fn, RandomWalkMetropolis
 from tensorflow_probability.python.mcmc.simple_step_size_adaptation import SimpleStepSizeAdaptation
+from tensorflow_probability.python.mcmc.dual_averaging_step_size_adaptation import DualAveragingStepSizeAdaptation
 from collections import namedtuple
-from Inference.MCMC.kernel.particle_mcmc_kernel import ParticleMetropolisHastings
 from tensorflow_probability.python.internal import samplers
 import tensorflow_probability.python.internal.prefer_static as ps
 """

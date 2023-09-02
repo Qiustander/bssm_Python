@@ -1,7 +1,7 @@
 import tensorflow as tf
 from tensorflow_probability.python.mcmc.internal import util as mcmc_util
 from collections import namedtuple
-from .infer_trajectories import reconstruct_trajectories, one_trajectory
+from .infer_trajectories import reconstruct_trajectories
 from .particle_filter import _check_resample_fn
 from tensorflow_probability.python.internal import samplers
 
@@ -93,6 +93,7 @@ def filter_smoother(ssm_model,
                                                        resample_indices,
                                                        axis=1),
             weighted_trajectories)
+
         smoother_mean = tf.reduce_mean(trajectories, axis=1)
 
         return return_results(filtered_mean=infer_result.filtered_mean, predicted_mean=infer_result.predicted_mean,

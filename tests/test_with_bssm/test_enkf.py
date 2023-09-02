@@ -73,8 +73,12 @@ class TestEnsembleKalmanFilter:
                                  obs_noise_std=0.1,
                                  nonlinear_type="nlg_ar_exp")
 
-        infer_result = model_obj.ensemble_Kalman_filter(observation, num_particles=20)
-        infer_result_standalone = ensemble_kalman_filter(model_obj, observation, num_particles=20)
+        @tf.function
+        def run_method():
+            infer_result = ensemble_kalman_filter(model_obj, observation, num_particles=100)
+            return infer_result
+
+        infer_result_standalone = run_method()
 
         true_state = np.array(ro.r("x"))[..., None]
         # plt.plot(infer_result[0].numpy(), color='blue', linewidth=1)
@@ -120,7 +124,6 @@ class TestEnsembleKalmanFilter:
                                              state_noise_std=0.1,
                                              obs_noise_std=0.2,
                                              nonlinear_type="nlg_sin_exp")
-        infer_result = model_obj.ensemble_Kalman_filter(observation, num_particles=20)
         infer_result_standalone = ensemble_kalman_filter(model_obj, observation, num_particles=20)
 
         print('MSE error of the EKF from bssm: %.4f' % np.sum((r_result[1] - true_state) ** 2))

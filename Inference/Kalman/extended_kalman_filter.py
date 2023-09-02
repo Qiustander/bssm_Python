@@ -10,7 +10,7 @@ from tensorflow_probability.python.math import linalg
 tfd = tfp.distributions
 
 
-@tf.function
+# @tf.function
 def extended_kalman_filter(ssm_model, observations):
     """Applies an Extended Kalman Filter to observed data.
 

@@ -8,7 +8,6 @@ from tensorflow_probability.python.internal import prefer_static as ps
 tfd = tfp.distributions
 
 
-# @tf.function
 def kalman_smoother(ssm_model, observations):
     """ Conduct the Kalman Smoother for observated data
     Args:
@@ -26,13 +25,10 @@ def kalman_smoother(ssm_model, observations):
     """
 
     (filtered_means, filtered_covs,
-     predicted_means, predicted_covs, _,) = kalman_filter(
+     predicted_means, predicted_covs, log_marginal_likelihood) = kalman_filter(
         ssm_model,
         observations
     )
-    # extract the 1:last predicted mean & covariance
-    predicted_means = predicted_means[1:, ...]
-    predicted_covs = predicted_covs[1:, ...]
 
     # The means are assumed to be vectors. Adding a dummy index to
     # ensure the `matmul` op working smoothly.
@@ -46,7 +42,7 @@ def kalman_smoother(ssm_model, observations):
     smoothed_means = distribution_util.move_dimension(
         smoothed_means[..., 0], 0, -2)
 
-    return smoothed_means, smoothed_covs
+    return smoothed_means, smoothed_covs, log_marginal_likelihood
 
 
 def backward_smoothing_pass(transition_fn, filtered_means, filtered_covs,
@@ -85,7 +81,7 @@ def backward_smoothing_pass(transition_fn, filtered_means, filtered_covs,
 
     initial_backward_mean = predicted_means[-1, ...]
     initial_backward_cov = predicted_covs[-1, ...]
-    last_time_step = tf.ones([filtered_means.shape[0]])
+    last_time_step = ps.size0(filtered_means)-1
 
     (smoothed_means, smoothed_covs, time_step) = tf.scan(update_step_fn,
                                               elems=(filtered_means,
@@ -201,7 +197,7 @@ def backward_smoothing_update(filtered_mean,
     #      = (P^{-1} * tmp_gain_cov) '
     #      = (P \ tmp_gain_cov)'
     transition_mtx = transition_fn(time_step,
-                                           tf.eye(ps.shape(filtered_mean)[-1]))
+                                           tf.eye(ps.shape(tf.squeeze(filtered_mean, axis=-1))[-1]))
     tmp_gain_cov = tf.matmul(transition_mtx, filtered_cov)
 
     # grad_mean = transition_fn(time_step, filtered_mean)

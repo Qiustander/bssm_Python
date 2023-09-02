@@ -74,12 +74,17 @@ class TestParticleSmoother:
                                               obs_noise_std=0.1,
                                               nonlinear_type="nlg_ar_exp")
 
+        @tf.function
+        def run_method():
+            infer_result = filter_smoother(model_obj,
+                                           observation,
+                                           resample_ess=1.,
+                                           num_particles=200,
+                                           particle_filter_name='bsf')
+            return infer_result
+
         # infer_result = model_obj.unscented_Kalman_filter(observation, alpha=1e-2, beta=2., kappa=1.)
-        infer_result = filter_smoother(model_obj,
-                                       observation,
-                                       resample_ess=1.,
-                                       num_particles=200,
-                                       particle_filter_name='bsf')
+        infer_result = run_method()
 
         true_state = np.array(ro.r("x"))[..., None]
         plt.plot(infer_result.smoother_mean.numpy(), color='blue', linewidth=1)
@@ -102,6 +107,7 @@ class TestParticleSmoother:
     def test_bspfilter_TFP_sinexp(self):
         ro.r("""
         n <- 150
+        set.seed(123)
         x <- y <- numeric(n) + 0.1
         y[1] <- rnorm(1, exp(x[1]), 0.1)
         for(i in 1:(n-1)) {
@@ -136,11 +142,17 @@ class TestParticleSmoother:
                                               state_noise_std=0.1,
                                               obs_noise_std=0.2,
                                               nonlinear_type="nlg_sin_exp")
-        infer_result = filter_smoother(model_obj,
-                                       observation,
-                                       resample_ess=1.,
-                                       num_particles=200,
-                                       particle_filter_name='bsf')
+
+        @tf.function
+        def run_method():
+            infer_result = filter_smoother(model_obj,
+                                           observation,
+                                           resample_ess=0.5,
+                                           num_particles=200,
+                                           particle_filter_name='bsf')
+            return infer_result
+
+        infer_result = run_method()
 
         true_state = np.array(ro.r("x"))[..., None]
         plt.plot(infer_result.smoother_mean.numpy(), color='blue', linewidth=1)

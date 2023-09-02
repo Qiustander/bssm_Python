@@ -29,10 +29,6 @@ def marginal_likelihood(ssm_model,
     Returns:
         """
 
-    observations_shape = prefer_static.shape(
-        tf.nest.flatten(observations)[0])
-    dummy_zeros = tf.zeros(observations_shape[1:-1])
-
     log_marginal_likelihood = forward_pass(
         transition_dist=ssm_model.transition_dist,
         observation_dist=ssm_model.observation_dist,
@@ -79,10 +75,9 @@ def forward_pass(transition_fn,
     dummy_zeros = tf.zeros(observations_shape[1:-1])
 
     log_marginal_likelihood, time_step = tf.scan(update_step_fn, elems=(filtered_states,
-                                                                        filtered_states,
                                                                         observations),
                                                  initializer=(dummy_zeros,
-                                                              dummy_zeros))
+                                                              tf.cast(dummy_zeros, dtype=tf.int32)))
     return log_marginal_likelihood
 
 
@@ -151,7 +146,6 @@ def _marignal_likelihood_one_step(state,
     state_prior = transition_dist(time_step, current_state)
     current_covariance = state_prior.covariance()
     predicted_mean = state_prior.mean()
-
 
     predicted_cov = (tf.matmul(
         current_transition_mtx,

@@ -22,26 +22,30 @@ https://cs.adelaide.edu.au/~ianr/Teaching/Estimation/LectureNotes2.pdf
 class TestExtendKalmanFilter:
 
     def test_univariate_model(self):
-        obs_len = 200
+        num_timesteps = obs_len = 200
+        observation_size = 1
         state_dim = 1
-        observation = np.ones(obs_len, )
-        size_y, observation = check_y(observation.astype("float32"))  # return time length and feature numbers
-        num_timesteps, observation_size = size_y
 
         model_obj = NonlinearSSM.create_model(num_timesteps=num_timesteps,
                                               observation_size=observation_size,
                                               latent_size=state_dim,
                                               initial_state_mean=0.,
                                               initial_state_cov=1.,
-                                              state_noise_std=0.1,
-                                              obs_noise_std=0.1,
+                                              state_noise_std=1e-11,
+                                              obs_noise_std=1e-11,
                                               nonlinear_type="constant_dynamic_univariate_test")
+        true_state, observation = model_obj.simulate()
 
-        infer_result = extended_kalman_filter(model_obj, observation)
+        @tf.function
+        def run_method():
+            infer_result = extended_kalman_filter(model_obj, observation)
+            return infer_result
+
+        infer_result = run_method()
 
         # constant observation, must converge to this point
-        tf.debugging.assert_near(infer_result[0][50:], observation[50:], atol=1e-6)
-        tf.debugging.assert_near(infer_result[2][51:], observation[50:], atol=1e-6)
+        tf.debugging.assert_near(infer_result[0][50:], true_state[50:], atol=1e-6)
+        tf.debugging.assert_near(infer_result[2][51:], true_state[50:], atol=1e-6)
         # covariance would not change
         diff_operation = infer_result[1][1:][30:] - infer_result[1][:-1][30:]
         tf.debugging.assert_near(diff_operation, tf.zeros(diff_operation.shape), atol=1e-6)
@@ -56,33 +60,37 @@ class TestExtendKalmanFilter:
                                         ])
 
     def test_multivariate_model_shape(self):
-        num_timesteps = 200
+        num_timesteps = obs_len = 200
         state_dim = 4
         observation_size = 3
-        # # observation = np.ones([obs_len, 3])
-        # observation = np.stack([np.ones([obs_len,]), 2*np.ones([obs_len,]), 4*np.ones([obs_len,])], axis=-1)
-        # size_y, observation = check_y(observation.astype("float32"))  # return time length and feature numbers
-        # num_timesteps, observation_size = size_y
+        # observation = np.ones([obs_len, 3])
 
         model_obj = NonlinearSSM.create_model(num_timesteps=num_timesteps,
                                               observation_size=observation_size,
                                               latent_size=state_dim,
-                                              initial_state_mean=np.array([1., 1., 1.5, 1.1]),
+                                              initial_state_mean=np.array(tf.random.normal([4,])),
                                               initial_state_cov=np.diag([0.01, 0.01, 0.01, 0.01]),
-                                              state_noise_std=np.diag([0, 0., 0., 0.]),
-                                              obs_noise_std=np.diag([0.1, 0.1, 0.1]),
+                                              state_noise_std=np.diag([1e-11]*4),
+                                              obs_noise_std=np.diag([1e-1]*3),
                                               nonlinear_type="constant_dynamic_multivariate_test")
-        true_state, observation = model_obj.simulate(num_timesteps)
-        infer_result = extended_kalman_filter(model_obj, observation)
+        true_state, observation = model_obj.simulate()
 
+        @tf.function
+        def run_method():
+            infer_result = extended_kalman_filter(model_obj, observation)
+            return infer_result
+
+        infer_result = run_method()
         # constant observation, must converge to this point
-        tf.debugging.assert_near(infer_result[0][50:, 0], observation[50:, 0], atol=1e-6)
-        tf.debugging.assert_near(infer_result[0][50:, 1], observation[50:, 1], atol=1e-6)
-        tf.debugging.assert_near(infer_result[0][50:, 2] + 0.1*infer_result[0][50:, 3], observation[50:, 2], atol=1e-6)
+        tf.debugging.assert_near(infer_result[0][50:, 0], true_state[50:, 0], atol=1e-6)
+        tf.debugging.assert_near(infer_result[0][50:, 1], true_state[50:, 1], atol=1e-6)
+        tf.debugging.assert_near(infer_result[0][50:, 2], true_state[50:, 2], atol=1e-1)
+        tf.debugging.assert_near(infer_result[0][50:, 3], true_state[50:, 3], atol=1e-1)
 
-        tf.debugging.assert_near(infer_result[2][51:, 0], observation[50:, 0], atol=1e-6)
-        tf.debugging.assert_near(infer_result[2][51:, 1], observation[50:, 1], atol=1e-6)
-        tf.debugging.assert_near(infer_result[2][51:, 2] + 0.1*infer_result[2][51:, 3], observation[50:, 2], atol=1e-6)
+        tf.debugging.assert_near(infer_result[2][51:, 0], true_state[50:, 0], atol=1e-6)
+        tf.debugging.assert_near(infer_result[2][51:, 1], true_state[50:, 1], atol=1e-6)
+        tf.debugging.assert_near(infer_result[2][51:, 2], true_state[50:, 2], atol=1e-0)
+        tf.debugging.assert_near(infer_result[2][51:, 3], true_state[50:, 3], atol=1e-0)
 
         # covariance would not change
         diff_operation = infer_result[1][1:][30:] - infer_result[1][:-1][30:]

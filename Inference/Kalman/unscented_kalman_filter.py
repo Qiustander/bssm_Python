@@ -7,7 +7,6 @@ import numpy as np
 tfd = tfp.distributions
 
 
-@tf.function
 def unscented_kalman_filter(ssm_model, observations, alpha=1e-2, beta=2., kappa=1.):
     """Applies an Unscented Kalman Filter to observed data.
 
@@ -212,6 +211,7 @@ def _unscented_kalman_filter_one_step(
     current_state, current_cov, predict_state, predict_cov, _, time_step = state
     observation_size_is_static_and_scalar = (observation.shape[-1] == 1)
 
+
     chol_cov_mtx = tf.linalg.cholesky(predict_cov)  # lower triangular L
     indices = tf.range(num_sigma)
     sigma_points_x = tf.vectorized_map(
@@ -245,6 +245,11 @@ def _unscented_kalman_filter_one_step(
         filtered_state = predict_state + kalman_gain._matmul(gamma_t)
     filtered_cov = predict_cov - kalman_gain @ current_variance @ tf.transpose(kalman_gain)
 
+    log_marginal_likelihood = tfd.MultivariateNormalTriL(
+        loc=estimated_y,  # ensemble mean
+        # Cholesky(Cov(G(X)) + Γ), where Cov(..) is the ensemble covariance.
+        scale_tril=tf.linalg.cholesky(current_variance)).log_prob(observation)    # chol_noise = tf.linalg.cholesky(observation_noise)
+
     ############## prediction for next state mu_t+1|t
     chol_next_state = tf.linalg.cholesky(filtered_cov)
     sigma_points_pred = tf.vectorized_map(lambda x:
@@ -260,15 +265,7 @@ def _unscented_kalman_filter_one_step(
                                      weights_cov=sigma_weight_cov) + transition_fn(time_step,
                                                                                    sigma_points_pred[0]).covariance()
 
-    # TODO: add the likelihood
-    # log_marginal_likelihood = predictive_dist.log_prob(observation)
-    # chol_noise = tf.linalg.cholesky(observation_noise)
-    # inv_noise = tf.linalg.inv(chol_noise)
-    # residual_covariance = tf.matmul(
-    #     inv_noise, gamma_t, transpose_a=True)
-    #
-    # log_marginal_likelihood = -0.5*tf.math.log(2.*np.pi) +2.*tf.math.log(tf.linalg.tensor_diag_part(chol_noise))
-    log_marginal_likelihood = 0.
+
 
     return (filtered_state,
             filtered_cov,

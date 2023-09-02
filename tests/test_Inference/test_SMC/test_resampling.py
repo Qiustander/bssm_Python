@@ -88,3 +88,20 @@ class TestResampling:
         resample_indx_filterpy = np.sort(residual_resample(tf.exp(log_prob).numpy(), seed=seed))
 
         tf.debugging.assert_equal(resample_indx_self, resample_indx_filterpy)
+
+    @pytest.mark.parametrize(("num_particles", "seed"),
+                             [(num_particles, seed)])
+    def test_unnormalized_weights(self, num_particles, seed):
+
+        tf.random.set_seed(seed)
+        prob = tfd.Normal(loc=0.4, scale=0.4).sample(num_particles)
+        normalized_log_prob = tf.nn.log_softmax(prob)
+        log_prob = normalized_log_prob+1.2
+
+        tf.random.set_seed(seed)
+        resample_indx_tfp = resample_stratified(normalized_log_prob, num_particles, (), seed=seed)
+
+        tf.random.set_seed(seed)
+        resample_indx_self = resample._resample_stratified(log_prob, resample_num=num_particles, seed=seed)
+
+        tf.debugging.assert_equal(resample_indx_tfp, resample_indx_self)

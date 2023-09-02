@@ -51,9 +51,7 @@ class TestUnscentedKalmanFilter:
           x[i] <- rnorm(1, mu * (1 - rho) + rho * x[i - 1], sigma_x)
         }
         y <- rnorm(n, exp(x), sigma_y)
-        setwd('../../bssm_R/src')
         pntrs <- cpp_example_model("nlg_ar_exp")
-        Rcpp::sourceCpp("model_ssm_nlg_edit.cpp")
 
         model_nlg <- ssm_nlg(y = y, a1 = pntrs$a1, P1 = pntrs$P1,
           Z = pntrs$Z_fn, H = pntrs$H_fn, T = pntrs$T_fn, R = pntrs$R_fn,
@@ -81,13 +79,17 @@ class TestUnscentedKalmanFilter:
                                  obs_noise_std=0.1,
                                  nonlinear_type="nlg_ar_exp")
 
-        infer_result = unscented_kalman_filter(model_obj, observation, alpha=1e-2, beta=2., kappa=1.)
+        @tf.function
+        def run_method():
+            infer_result = unscented_kalman_filter(model_obj, observation, alpha = 1, beta = 0, kappa = 2)
+            return infer_result
 
-        true_state = np.array(ro.r("x"))[..., None]
-        plt.plot(infer_result[0].numpy(), color='blue', linewidth=1)
-        plt.plot(r_result[1], color='green', linewidth=1)
-        plt.plot(true_state, '-.', color='red', linewidth=1)
-        plt.show()
+        infer_result = run_method()
+        # true_state = np.array(ro.r("x"))[..., None]
+        # plt.plot(infer_result[0].numpy(), color='blue', linewidth=1)
+        # plt.plot(r_result[1], color='green', linewidth=1)
+        # plt.plot(true_state, '-.', color='red', linewidth=1)
+        # plt.show()
 
         # compare filtered_means
         tf.debugging.assert_near(r_result[1], infer_result[0].numpy(), atol=1e-0)
@@ -134,7 +136,12 @@ class TestUnscentedKalmanFilter:
                                              obs_noise_std=0.2,
                                              nonlinear_type="nlg_sin_exp")
         # infer_result = model_obj.unscented_Kalman_filter(observation)
-        infer_result = unscented_kalman_filter(model_obj, observation, alpha=1e-2, beta=2., kappa=1.)
+        @tf.function
+        def run_method():
+            infer_result = unscented_kalman_filter(model_obj, observation)
+            return infer_result
+
+        infer_result = run_method()
 
         true_state = np.array(ro.r("x"))[..., None]
         plt.plot(infer_result[0].numpy(), color='blue', linewidth=1)

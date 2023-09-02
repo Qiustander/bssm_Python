@@ -167,12 +167,12 @@ class NonlinearSSM(object):
     def proposal_dist(self):
         """Proposal distribution for and SMC, Default None
         """
-        pass
+        raise NotImplementedError
 
     def update_model(self):
         """Update the current function related to the parameters theta
         """
-        pass
+        raise NotImplementedError
 
     def initial_theta(self):
         """Initialize the parameters theta for parameterization

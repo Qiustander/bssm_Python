@@ -70,7 +70,7 @@ def kalman_filter(ssm_model,
             predicted_means[-1, ...], predicted_covs[-1, ...], log_marginal_likelihood[-1, ...]
 
     if log_likelihood:
-        return log_marginal_likelihood[-1, ...]
+        return tf.reduce_sum(log_marginal_likelihood)
 
     return (filtered_means, filtered_covs,
             predicted_means, predicted_covs, log_marginal_likelihood)
@@ -117,18 +117,18 @@ def forward_filter_pass(transition_fn,
                                                                 predicted_means,
                                                                 predicted_covs,
                                                                 dummy_zeros,
-                                                                dummy_zeros))
+                                                                tf.cast(dummy_zeros, dtype=tf.int32)))
     # one-step predicted mean and covariance
-    state_prior = transition_dist(time_step[-1], filtered_means[-1, ...])
+    state_prior = transition_dist(time_step[-1]-1, filtered_means[-1, ...])
     last_mean = state_prior.mean()
-    current_transition = transition_fn(time_step[-1],
+    current_transition = transition_fn(time_step[-1]-1,
                                        tf.eye(prefer_static.shape(filtered_means)[-1]))
     last_cov = (tf.matmul(
         current_transition,
         tf.matmul(filtered_covs[-1, ...], current_transition, transpose_b=True)) +
                 state_prior.covariance())
-    predicted_means = tf.concat([predicted_means, last_mean[tf.newaxis, ...]], axis=0)
-    predicted_covs = tf.concat([predicted_covs, last_cov[tf.newaxis, ...]], axis=0)
+    predicted_means = tf.concat([predicted_means[1:], last_mean[tf.newaxis, ...]], axis=0)
+    predicted_covs = tf.concat([predicted_covs[1:], last_cov[tf.newaxis, ...]], axis=0)
 
     return (filtered_means, filtered_covs,
             predicted_means, predicted_covs, log_marginal_likelihood)

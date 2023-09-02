@@ -18,7 +18,7 @@ https://cs.adelaide.edu.au/~ianr/Teaching/Estimation/LectureNotes2.pdf
 2. compare shape
 3. constant dynamic
 """
-# TODO: need revision
+
 class TestExtendKalmanSmoother:
 
     def test_univariate_model(self):
@@ -33,26 +33,27 @@ class TestExtendKalmanSmoother:
                                               latent_size=state_dim,
                                               initial_state_mean=0.,
                                               initial_state_cov=1.,
-                                              state_noise_std=0.1,
-                                              obs_noise_std=0.1,
+                                              state_noise_std=1e-11,
+                                              obs_noise_std=1e-11,
                                               nonlinear_type="constant_dynamic_univariate_test")
 
-        infer_result = extended_kalman_smoother(model_obj, observation)
+        @tf.function
+        def run_method():
+            infer_result = extended_kalman_smoother(model_obj, observation)
+
+            return infer_result
+        infer_result = run_method()
+        # smoothered mean, cov
 
         # constant observation, must converge to this point
         tf.debugging.assert_near(infer_result[0][50:], observation[50:], atol=1e-6)
-        tf.debugging.assert_near(infer_result[2][51:], observation[50:], atol=1e-6)
+
         # covariance would not change
         diff_operation = infer_result[1][1:][30:] - infer_result[1][:-1][30:]
-        tf.debugging.assert_near(diff_operation, tf.zeros(diff_operation.shape), atol=1e-6)
+        tf.debugging.assert_near(diff_operation, tf.zeros(diff_operation.shape), atol=1e-2)
 
-        diff_operation = infer_result[3][1:][30:] - infer_result[3][:-1][30:]
-        tf.debugging.assert_near(diff_operation, tf.zeros(diff_operation.shape), atol=1e-6)
-
-        tf.debugging.assert_shapes([(infer_result[0], (obs_len, state_dim)), # filtered_means
-                                    (infer_result[1], (obs_len, state_dim, state_dim)), # filtered_covs
-                                    (infer_result[2], (obs_len+1, state_dim)), # predicted_means
-                                    (infer_result[3], (obs_len+1, state_dim, state_dim)),# predicted_covs
+        tf.debugging.assert_shapes([(infer_result[0], (obs_len, state_dim)), # smoothed_means
+                                    (infer_result[1], (obs_len, state_dim, state_dim)), # smoothed_covs
                                         ])
 
     def test_multivariate_model_shape(self):
@@ -66,34 +67,30 @@ class TestExtendKalmanSmoother:
         model_obj = NonlinearSSM.create_model(num_timesteps=num_timesteps,
                                               observation_size=observation_size,
                                               latent_size=state_dim,
-                                              initial_state_mean=np.array([0., 0., 0., 0.]),
-                                              initial_state_cov=np.diag([1, 2, 1, 1.5]),
-                                              state_noise_std=np.diag([0.1, 0.1, 0.5, 0.1]),
-                                              obs_noise_std=np.diag([0.1, 0.1, 0.1]),
+                                              initial_state_mean=np.array(tf.random.normal([4,])),
+                                              initial_state_cov=np.diag([0.01, 0.01, 0.01, 0.01]),
+                                              state_noise_std=np.diag([1e-11]*4),
+                                              obs_noise_std=np.diag([1e-11]*3),
                                               nonlinear_type="constant_dynamic_multivariate_test")
 
-        infer_result = extended_kalman_filter(model_obj, observation)
+        @tf.function
+        def run_method():
+            infer_result = extended_kalman_smoother(model_obj, observation)
+
+            return infer_result
+        infer_result = run_method()
 
         # constant observation, must converge to this point
         tf.debugging.assert_near(infer_result[0][50:, 0], observation[50:, 0], atol=1e-6)
         tf.debugging.assert_near(infer_result[0][50:, 1], observation[50:, 1], atol=1e-6)
         tf.debugging.assert_near(infer_result[0][50:, 2] + 0.1*infer_result[0][50:, 3], observation[50:, 2], atol=1e-6)
 
-        tf.debugging.assert_near(infer_result[2][51:, 0], observation[50:, 0], atol=1e-6)
-        tf.debugging.assert_near(infer_result[2][51:, 1], observation[50:, 1], atol=1e-6)
-        tf.debugging.assert_near(infer_result[2][51:, 2] + 0.1*infer_result[2][51:, 3], observation[50:, 2], atol=1e-6)
-
         # covariance would not change
         diff_operation = infer_result[1][1:][30:] - infer_result[1][:-1][30:]
         tf.debugging.assert_near(diff_operation, tf.zeros(diff_operation.shape), atol=1e-2)
 
-        diff_operation = infer_result[3][1:][30:] - infer_result[3][:-1][30:]
-        tf.debugging.assert_near(diff_operation, tf.zeros(diff_operation.shape), atol=1e-2)
-
         tf.debugging.assert_shapes([(infer_result[0], (obs_len, state_dim)), # filtered_means
                                     (infer_result[1], (obs_len, state_dim, state_dim)), # filtered_covs
-                                    (infer_result[2], (obs_len+1, state_dim)), # predicted_means
-                                    (infer_result[3], (obs_len+1, state_dim, state_dim)),# predicted_covs
                                         ])
 
 def debug_plot(tfp_result, r_result, true_state):

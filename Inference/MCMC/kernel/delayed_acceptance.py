@@ -183,8 +183,7 @@ class DelayedAcceptance(kernel_base.TransitionKernel):
 
             is_accepted, log_accept_ratio = _compute_accept_ratio(to_sum)
 
-            # if is_accepted is true, then go to second stage
-
+            # if is_accepted is true, then go to second stage, to calculate the exact probability
             next_state = mcmc_util.choose(
                 is_accepted,
                 proposed_approx_state,
@@ -232,15 +231,15 @@ class DelayedAcceptance(kernel_base.TransitionKernel):
 
                 target_prob_setter_fn(proposed_approx_results, exact_propose_target_log_prob)
 
-                kernel_results._replace(is_accepted=is_accepted_exact,
-                                        log_accept_ratio=log_accept_ratio_exact,
-                                        proposed_results=proposed_approx_results,
-                                        accepted_results=mcmc_util.choose(
-                                            is_accepted_exact,
-                                            mcmc_util.strip_seeds(proposed_approx_results),
-                                            previous_kernel_results.accepted_results,
-                                            name='choose_inner_results')
-                                        )
+                kernel_results = kernel_results._replace(is_accepted=is_accepted_exact,
+                                                         log_accept_ratio=log_accept_ratio_exact,
+                                                         proposed_results=proposed_approx_results,
+                                                         accepted_results=mcmc_util.choose(
+                                                             is_accepted_exact,
+                                                             mcmc_util.strip_seeds(proposed_approx_results),
+                                                             previous_kernel_results.accepted_results,
+                                                             name='choose_inner_results')
+                                                         )
 
             return next_state, kernel_results
 

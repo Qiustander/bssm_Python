@@ -151,6 +151,9 @@ def _resample_stratified(weights, resample_num, seed=None, name=None):
         index of the zeroth resample is indexes[0], etc.
     """
     with tf.name_scope(name or 'resample_stratified'):
+        # normalize in case there is direct usage
+        weights = tf.math.log_softmax(weights, axis=0)
+
         weights = tf.exp(tf.convert_to_tensor(weights, dtype_hint=tf.float32))
 
         if not resample_num:
@@ -203,6 +206,9 @@ def _resample_systematic(weights, resample_num, seed=None, name=None):
         index of the zeroth resample is indexes[0], etc.
     """
     with tf.name_scope(name or 'resample_systematic'):
+        # normalize in case there is direct usage
+        weights = tf.math.log_softmax(weights, axis=0)
+
         weights = tf.exp(tf.convert_to_tensor(weights, dtype_hint=tf.float32))
 
         if not resample_num:
@@ -256,6 +262,9 @@ def _resample_multinomial(weights, resample_num, seed=None, name=None):
         index of the zeroth resample is indexes[0], etc.
     """
     with tf.name_scope(name or 'resample_multinomial'):
+        # normalize in case there is direct usage
+        weights = tf.math.log_softmax(weights, axis=0)
+
         weights = tf.exp(tf.convert_to_tensor(weights, dtype_hint=tf.float32))
 
         if not resample_num:

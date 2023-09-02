@@ -10,7 +10,6 @@ return_results = namedtuple(
                                       'log_weights', 'parent_indices', 'accumulated_log_marginal_likelihood'])
 
 
-@tf.function
 def forward_filter_backward_smoother(ssm_model,
                                      observations,
                                      num_particles,
@@ -111,7 +110,6 @@ def _backward_filter_step(transition_fn, all_time_step):
                 current_step_particles, next_step_particles = weights_and_particles
             current_step_particles = tf.squeeze(current_step_particles, axis=-1)
             next_step_particles = tf.squeeze(next_step_particles, axis=-1)
-            # print(f"current time step{time_step}")
             if time_step == all_time_step:  # skip the last time step
                 return (backward_weights,
                         time_step - 1)

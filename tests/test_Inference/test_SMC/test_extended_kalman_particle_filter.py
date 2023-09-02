@@ -3,11 +3,12 @@ import tensorflow as tf
 import tensorflow_probability as tfp
 import numpy as np
 from Models.ssm_nlg import NonlinearSSM
-from Inference.SMC.bootstrap_particle_filter import bootstrap_particle_filter
+from Inference.SMC.extend_kalman_particle_filter import extended_kalman_particle_filter
 from Models.check_argument import *
 import os.path as pth
 import os
 import matplotlib.pyplot as plt
+
 tfd = tfp.distributions
 
 """
@@ -19,10 +20,11 @@ https://cs.adelaide.edu.au/~ianr/Teaching/Estimation/LectureNotes2.pdf
 3. constant dynamic
 """
 
-class TestBootStrapParticleFilter:
-    num_particles = 20
+
+class TestExtendedKalmanParticleFilter:
+    num_particles = 300
     seed = 457
-    num_timesteps = 10
+    num_timesteps = 500
 
     @pytest.mark.parametrize(("num_particles", "seed", "num_timesteps"),
                              [(num_particles, seed, num_timesteps)])
@@ -43,12 +45,12 @@ class TestBootStrapParticleFilter:
 
         @tf.function
         def run_method():
-            infer_result = bootstrap_particle_filter(model_obj,
-                                                     observations,
-                                                     resample_ess=0.5,
-                                                     resample_fn='systematic',
-                                                     num_particles=num_particles,
-                                                     seed=seed)
+            infer_result = extended_kalman_particle_filter(model_obj,
+                                                           observations,
+                                                           resample_ess=0.5,
+                                                           resample_fn='systematic',
+                                                           num_particles=num_particles,
+                                                           seed=seed)
             return infer_result
 
         infer_result = run_method()
@@ -63,11 +65,12 @@ class TestBootStrapParticleFilter:
         diff_operation = infer_result.filtered_variance[1:][30:] - infer_result.filtered_variance[:-1][30:]
         tf.debugging.assert_near(diff_operation, tf.zeros(diff_operation.shape), atol=1e-6)
 
-        tf.debugging.assert_shapes([(infer_result.filtered_mean, (obs_len, state_dim)), # filtered_means
-                                    (infer_result.filtered_variance, (obs_len, state_dim, state_dim)), # filtered_covs
-                                    (infer_result.predicted_mean, (obs_len, state_dim)), # predicted_means
-                                    (infer_result.predicted_variance, (obs_len, state_dim, state_dim)),# predicted_covs
-                                        ])
+        tf.debugging.assert_shapes([(infer_result.filtered_mean, (obs_len, state_dim)),  # filtered_means
+                                    (infer_result.filtered_variance, (obs_len, state_dim, state_dim)),  # filtered_covs
+                                    (infer_result.predicted_mean, (obs_len, state_dim)),  # predicted_means
+                                    (infer_result.predicted_variance, (obs_len, state_dim, state_dim)),
+                                    # predicted_covs
+                                    ])
 
     @pytest.mark.parametrize(("num_particles", "seed", "num_timesteps"),
                              [(num_particles, seed, num_timesteps)])
@@ -80,21 +83,21 @@ class TestBootStrapParticleFilter:
         model_obj = NonlinearSSM.create_model(num_timesteps=num_timesteps,
                                               observation_size=observation_size,
                                               latent_size=state_dim,
-                                              initial_state_mean=np.array(tf.random.normal([4,])),
+                                              initial_state_mean=np.array(tf.random.normal([4, ])),
                                               initial_state_cov=np.diag([0.01, 0.01, 0.01, 0.01]),
-                                              state_noise_std=np.diag([1e-11]*4),
-                                              obs_noise_std=np.diag([1e-1]*3),
+                                              state_noise_std=np.diag([1e-11] * 4),
+                                              obs_noise_std=np.diag([1e-5] * 3),
                                               nonlinear_type="constant_dynamic_multivariate_test")
         true_state, observation = model_obj.simulate()
 
         @tf.function
         def run_method():
-            infer_result = bootstrap_particle_filter(model_obj,
-                                                     observation,
-                                                     resample_ess=0.5,
-                                                     resample_fn='systematic',
-                                                     num_particles=num_particles,
-                                                     seed=seed)
+            infer_result = extended_kalman_particle_filter(model_obj,
+                                                           observation,
+                                                           resample_ess=0.5,
+                                                           resample_fn='systematic',
+                                                           num_particles=num_particles,
+                                                           seed=seed)
             return infer_result
 
         infer_result = run_method()
@@ -116,11 +119,42 @@ class TestBootStrapParticleFilter:
         diff_operation = infer_result.filtered_variance[1:][30:] - infer_result.filtered_variance[:-1][30:]
         tf.debugging.assert_near(diff_operation, tf.zeros(diff_operation.shape), atol=1e-2)
 
-        tf.debugging.assert_shapes([(infer_result.filtered_mean, (obs_len, state_dim)), # filtered_means
-                                    (infer_result.filtered_variance, (obs_len, state_dim, state_dim)), # filtered_covs
-                                    (infer_result.predicted_mean, (obs_len, state_dim)), # predicted_means
-                                    (infer_result.predicted_variance, (obs_len, state_dim, state_dim)),# predicted_covs
-                                        ])
+        tf.debugging.assert_shapes([(infer_result.filtered_mean, (obs_len, state_dim)),  # filtered_means
+                                    (infer_result.filtered_variance, (obs_len, state_dim, state_dim)),  # filtered_covs
+                                    (infer_result.predicted_mean, (obs_len, state_dim)),  # predicted_means
+                                    (infer_result.predicted_variance, (obs_len, state_dim, state_dim)),
+                                    # predicted_covs
+                                    ])
+
+    def test_with_TFP_pf(self, num_particles, seed, num_timesteps):
+        obs_len = num_timesteps
+        observation_size = 1
+        state_dim = 1
+
+        model_obj = NonlinearSSM.create_model(num_timesteps=num_timesteps,
+                                              observation_size=observation_size,
+                                              latent_size=state_dim,
+                                              initial_state_mean=0,
+                                              initial_state_cov=1.,
+                                              state_noise_std=0.1,
+                                              obs_noise_std=0.2,
+                                              nonlinear_type="nlg_sin_exp")
+
+        true_state, observations = model_obj.simulate()
+
+        @tf.function
+        def run_method():
+            infer_result = extended_kalman_particle_filter(model_obj,
+                                                           observations,
+                                                           resample_ess=0.5,
+                                                           resample_fn='systematic',
+                                                           num_particles=num_particles,
+                                                           seed=seed)
+            return infer_result
+
+        infer_result = run_method()
+
+
 
 def debug_plot(tfp_result, true_state):
     plt.plot(tfp_result, color='blue', linewidth=1)

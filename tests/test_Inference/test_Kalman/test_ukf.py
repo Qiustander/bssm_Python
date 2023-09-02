@@ -1,228 +1,112 @@
 import pytest
+import tensorflow as tf
+import tensorflow_probability as tfp
 import numpy as np
-import rpy2.robjects as ro
-from rpy2.robjects import numpy2ri
-from rpy2.robjects.packages import importr
 from Models.ssm_nlg import NonlinearSSM
 from Inference.Kalman.unscented_kalman_filter import unscented_kalman_filter
 from Models.check_argument import *
 import os.path as pth
 import os
-import tensorflow as tf
 import matplotlib.pyplot as plt
-
-os.environ["CUDA_VISIBLE_DEVICES"] = "0"
-# gpu = tf.config.list_physical_devices('GPU')
-# tf.config.experimental.set_memory_growth(device=gpu[0], enable=True)
-
-# Automatic convertion between R and Python objects
-numpy2ri.activate()
-
-# Must call the function via the package, if the desired function is
-# linked with other functions in the package. The simple call via ro.r("""source""")
-# will only create a simple object that miss the link.
-base = importr('base', lib_loc="/usr/lib/R/library")
-bssm = importr('bssm', lib_loc=f"{pth.expanduser('~')}/R/x86_64-pc-linux-gnu-library/4.3")
-stat = importr('stats', lib_loc="/usr/lib/R/library")
+tfd = tfp.distributions
 
 """
-Note: bssm package uses fixed values for implementing the UKF: alpha = 1, beta = 0, kappa = 2
-and bssm uses wrong observation noise, the authors use std instead of covariance.
+Check consistence
+https://cs.adelaide.edu.au/~ianr/Teaching/Estimation/LectureNotes2.pdf
+
+1. load fixed state and bssm result for comparison. (same as numerical test)
+2. compare shape
+3. constant dynamic
 """
-#TODO: re-compile bssm package
-# TODO: need revision
-class TestExtendedKalmanFilter:
-    """
-    Test Extended Kalman Filter - ssm_nlg
-    """
 
-    def test_kffilter_TFP_arexp(self):
-        ro.r("""
-        mu <- -0.2
-        rho <- 0.7
-        n <- 150
-        sigma_y <- 0.1
-        sigma_x <- 0.5
-        x <- numeric(n)
-        x[1] <- rnorm(1, mu, sigma_x / sqrt(1 - rho^2))
-        for(i in 2:length(x)) {
-          x[i] <- rnorm(1, mu * (1 - rho) + rho * x[i - 1], sigma_x)
-        }
-        y <- rnorm(n, exp(x), sigma_y)
-        pntrs <- cpp_example_model("nlg_ar_exp")
+class TestUncentedKalmanFilter:
 
-        model_nlg <- ssm_nlg(y = y, a1 = pntrs$a1, P1 = pntrs$P1,
-          Z = pntrs$Z_fn, H = pntrs$H_fn, T = pntrs$T_fn, R = pntrs$R_fn,
-          Z_gn = pntrs$Z_gn, T_gn = pntrs$T_gn,
-          theta = c(mu= mu, rho = rho,
-            log_sigma_x = log(sigma_x), log_sigma_y = log(sigma_y)),
-          log_prior_pdf = pntrs$log_prior_pdf,
-          n_states = 1, n_etas = 1, state_names = "state")
-        
-        infer_result <- ukf(model_nlg, alpha = 0.01, beta = 2, kappa = 1)
-            """)
-        r_result = ro.r("infer_result")
-        observation = np.array(ro.r("y"))
-        size_y, observation = check_y(observation.astype("float32")) # return time length and feature numbers
-        num_timesteps, observation_size = size_y
+    def test_univariate_model(self):
+        num_timesteps = obs_len = 200
+        state_dim = 1
+        observation_size = 1
 
         model_obj = NonlinearSSM.create_model(num_timesteps=num_timesteps,
-                                 observation_size=observation_size,
-                                 latent_size=1,
-                                 initial_state_mean=0.1,
-                                 initial_state_cov=0,
-                                mu_state=0.2,
-                                rho_state=0.7,
-                                 state_noise_std=0.5,
-                                 obs_noise_std=0.1,
-                                 nonlinear_type="nlg_ar_exp")
+                                              observation_size=observation_size,
+                                              latent_size=state_dim,
+                                              initial_state_mean=1.,
+                                              initial_state_cov=1e-2,
+                                              state_noise_std=1e-11,
+                                              obs_noise_std=1e-2,
+                                              nonlinear_type="constant_dynamic_univariate_test")
+        true_state, observation = model_obj.simulate()
 
-        # infer_result = model_obj.unscented_Kalman_filter(observation, alpha=1e-2, beta=2., kappa=1.)
-        infer_result = unscented_kalman_filter(model_obj, observation, alpha=1e-2, beta=2., kappa=1.)
+        @tf.function
+        def run_method():
+            infer_result = unscented_kalman_filter(model_obj, observation)
+            return infer_result
 
-        true_state = np.array(ro.r("x"))[..., None]
-        plt.plot(infer_result[0].numpy(), color='blue', linewidth=1)
-        plt.plot(r_result[1], color='green', linewidth=1)
-        plt.plot(true_state, '-.', color='red', linewidth=1)
-        plt.show()
+        infer_result = run_method()
 
-        # compare filtered_means
-        tf.debugging.assert_near(r_result[1], infer_result[0].numpy(), atol=1e-0)
-        # compare filtered_covs
-        tf.debugging.assert_near(r_result[3], infer_result[1].numpy().transpose(1, 2, 0), atol=1e-0)
-        # compare predicted_means
-        tf.debugging.assert_near(r_result[0][1:, ...], infer_result[2].numpy(), atol=1e-0)
-        # compare predicted_covs
-        tf.debugging.assert_near(r_result[2][..., 1:], infer_result[3].numpy().transpose(1, 2, 0), atol=1e-0)
+        # constant observation, must converge to this point
+        tf.debugging.assert_near(infer_result[0][50:], true_state[50:], atol=1e-2)
+        tf.debugging.assert_near(infer_result[2][50:], true_state[50:], atol=1e-1)
+        # covariance would not change
+        diff_operation = infer_result[1][1:][30:] - infer_result[1][:-1][30:]
+        tf.debugging.assert_near(diff_operation, tf.zeros(diff_operation.shape), atol=1e-6)
 
-    def test_kffilter_TFP_sinexp(self):
-        ro.r("""
-        n <- 150
-        x <- y <- numeric(n) + 0.1
-        y[1] <- rnorm(1, exp(x[1]), 0.1)
-        for(i in 1:(n-1)) {
-         x[i+1] <- rnorm(1, sin(x[i]), 0.1)
-         y[i+1] <- rnorm(1, exp(x[i+1]), 0.2)
-        }
+        diff_operation = infer_result[3][1:][30:] - infer_result[3][:-1][30:]
+        tf.debugging.assert_near(diff_operation, tf.zeros(diff_operation.shape), atol=1e-6)
 
-        pntrs <- cpp_example_model("nlg_sin_exp")
+        tf.debugging.assert_shapes([(infer_result[0], (obs_len, state_dim)), # filtered_means
+                                    (infer_result[1], (obs_len, state_dim, state_dim)), # filtered_covs
+                                    (infer_result[2], (obs_len, state_dim)), # predicted_means
+                                    (infer_result[3], (obs_len, state_dim, state_dim)),# predicted_covs
+                                        ])
 
-        model_nlg <- ssm_nlg(y = y, a1 = pntrs$a1, P1 = pntrs$P1,
-          Z = pntrs$Z_fn, H = pntrs$H_fn, T = pntrs$T_fn, R = pntrs$R_fn,
-          Z_gn = pntrs$Z_gn, T_gn = pntrs$T_gn,
-          theta = c(log_H = log(0.2), log_R = log(0.1)),
-          log_prior_pdf = pntrs$log_prior_pdf,
-          n_states = 1, n_etas = 1, state_names = "state")
-
-        infer_result <- ukf(model_nlg, alpha = 0.01, beta = 2, kappa = 1)
-            """)
-        r_result = ro.r("infer_result")
-
-        observation = np.array(ro.r("y"))
-        size_y, observation = check_y(observation.astype("float32"))  # return time length and feature numbers
-        num_timesteps, observation_size = size_y
-
-        model_obj = NonlinearSSM.create_model(num_timesteps=num_timesteps,
-                                             observation_size=observation_size,
-                                             latent_size=1,
-                                             initial_state_mean=0,
-                                             initial_state_cov=1.,
-                                             state_noise_std=0.1,
-                                             obs_noise_std=0.2,
-                                             nonlinear_type="nlg_sin_exp")
-        # infer_result = model_obj.unscented_Kalman_filter(observation)
-        infer_result = unscented_kalman_filter(model_obj, observation, alpha=1e-2, beta=2., kappa=1.)
-
-        # true_state = np.array(ro.r("x"))[..., None]
-        # plt.plot(infer_result[0].numpy(), color='blue', linewidth=1)
-        # plt.plot(r_result[1], color='green', linewidth=1)
-        # plt.plot(true_state, '-.', color='red', linewidth=1)
-        # plt.show()
-
-        # compare filtered_means
-        tf.debugging.assert_near(r_result[1], infer_result[0].numpy(), atol=1e-3)
-        # compare filtered_covs
-        tf.debugging.assert_near(r_result[3], infer_result[1].numpy().transpose(1, 2, 0), atol=1e-3)
-        # compare predicted_means
-        tf.debugging.assert_near(r_result[0][1:, ...], infer_result[2].numpy(), atol=1e-3)
-        # compare predicted_covs
-        tf.debugging.assert_near(r_result[2][..., 1:], infer_result[3].numpy().transpose(1, 2, 0), atol=1e-3)
-
-    def test_kffilter_TFP_mvmodel(self):
-        ro.r("""
-       set.seed(1)
-        n <- 200 
-        sigma_y <- 0.1
-        sigma_x <- c(0.1, 0.1, 0.2, 0.1)
-        a1 <- c(0, 1, 0.5, 0)
-        P1 <- c(1, 2, 1, 1.5)
-        x <- matrix(0, nrow=n, ncol=4)
-        y <- matrix(0, nrow=n, ncol=3)
-        dt <- 0.3
-        
-        x[1, ] <- rnorm(4, a1, diag(P1))
-        y[1, ] <- rnorm(3,
-            c(x[1, 1]**2, x[1, 2]**3, 0.5*x[1, 3]+2*x[1, 4]+x[1, 1]+x[1, 2]), sigma_y)
-        known_params <- c(dT = dt, 
-                          a11 = a1[1], a12 = a1[2], a11 = a1[3], a12 = a1[4], 
-                          P11 = P1[1], P12 = P1[2], P11 = P1[3], P12 = P1[4])
-        for(i in 2:n) {
-            x[i, ] <- rnorm(4, c(0.8*x[i-1, 1] + dt*x[i-1, 2], 
-                                 0.7*x[i-1, 2] + dt*x[i-1, 3], 
-                                 0.6*x[i-1, 3] + dt*x[i-1, 4],
-                                 0.6*x[i-1, 4] + dt*x[i-1, 1]), 
-                            sigma_x)
-            y[i, ] <- rnorm(3, c(x[i, 1]**2, x[i, 2]**3, 0.5*x[i, 3]+2*x[1, 4]+x[i, 1]+x[i, 2]), 
-                                 sigma_y)
-        }
-        
-        Rcpp::sourceCpp("ssm_nlg_mv_model.cpp")
-        pntrs <- create_xptrs()
-        
-        model_nlg <- ssm_nlg(y = y, a1 = pntrs$a1, P1 = pntrs$P1,
-          Z = pntrs$Z_fn, H = pntrs$H_fn, T = pntrs$T_fn, R = pntrs$R_fn,
-          Z_gn = pntrs$Z_gn, T_gn = pntrs$T_gn,
-          theta = c(log_sigma_y = log(sigma_y), 
-                    log_sigma_x1 = log(sigma_x[1]), 
-                    log_sigma_x2 = log(sigma_x[2]),
-                    log_sigma_x3 = log(sigma_x[3]),
-                    log_sigma_x3 = log(sigma_x[4])),
-          log_prior_pdf = pntrs$log_prior_pdf,
-          known_params = known_params, 
-          n_states = 4, n_etas = 4)
-          
-        infer_result <- ukf(model_nlg, alpha = 0.01, beta = 2, kappa = 1)
-            """)
-        r_result = ro.r("infer_result")
-
-        observation = np.array(ro.r("y"))
+    def test_multivariate_model_shape(self):
+        num_timesteps = obs_len = 200
+        state_dim = 4
+        observation_size = 3
+        # observation = np.ones([obs_len, 3])
+        observation = np.stack([np.ones([obs_len,]), 2*np.ones([obs_len,]), 4*np.ones([obs_len,])], axis=-1)
         size_y, observation = check_y(observation.astype("float32"))  # return time length and feature numbers
         num_timesteps, observation_size = size_y
 
         model_obj = NonlinearSSM.create_model(num_timesteps=num_timesteps,
                                               observation_size=observation_size,
-                                              latent_size=4,
-                                              initial_state_mean=np.array([0, 1, 0.5, 0]),
-                                              initial_state_cov=np.diag([1, 2, 1, 1.5]),
-                                              state_noise_std=np.diag([0.1, 0.1, 0.2, 0.1]),
-                                              obs_noise_std=np.diag([0.1, 0.1, 0.1]),
-                                              dt=0.3,
-                                              nonlinear_type="nlg_mv_model")
-        infer_result = model_obj.unscented_Kalman_filter(observation)
-        # true_state = np.array(ro.r("x"))[..., None]
-        # plt.plot(infer_result[0][:,0].numpy(), color='blue', linewidth=1)
-        # plt.plot(r_result[1][:,0], color='green', linewidth=1)
-        # plt.plot(true_state[:,0], '-.', color='red', linewidth=1)
-        # plt.show()
+                                              latent_size=state_dim,
+                                              initial_state_mean=np.array(tf.random.normal([4,])),
+                                              initial_state_cov=np.diag([0.01, 0.01, 0.01, 0.01]),
+                                              state_noise_std=np.diag([1e-11]*4),
+                                              obs_noise_std=np.diag([1e-1]*3),
+                                              nonlinear_type="constant_dynamic_multivariate_test")
+        true_state, observation = model_obj.simulate()
 
-        # compare filtered_means
-        tf.debugging.assert_near(r_result[1], infer_result[0].numpy(), atol=1e-3)
-        # compare filtered_covs
-        tf.debugging.assert_near(r_result[3], infer_result[1].numpy().transpose(1, 2, 0), atol=1e-3)
-        # compare predicted_means
-        tf.debugging.assert_near(r_result[0][1:, ...], infer_result[2].numpy(), atol=1e-3)
-        # compare predicted_covs
-        tf.debugging.assert_near(r_result[2][..., 1:], infer_result[3].numpy().transpose(1, 2, 0), atol=1e-3)
+        @tf.function
+        def run_method():
+            infer_result = unscented_kalman_filter(model_obj, observation)
+            return infer_result
 
+        infer_result = run_method()
+        # constant observation, must converge to this point
+        tf.debugging.assert_near(infer_result[0][50:, 0], true_state[50:, 0], atol=1e-1)
+        tf.debugging.assert_near(infer_result[0][50:, 1], true_state[50:, 1], atol=1e-1)
+        tf.debugging.assert_near(infer_result[0][50:, 2], true_state[50:, 2], atol=1e-1)
 
+        tf.debugging.assert_near(infer_result[2][50:, 0], true_state[50:, 0], atol=1e-1)
+        tf.debugging.assert_near(infer_result[2][50:, 1], true_state[50:, 1], atol=1e-1)
+        tf.debugging.assert_near(infer_result[2][50:, 2], true_state[50:, 2], atol=1e-1)
 
+        # covariance would not change
+        diff_operation = infer_result[1][1:][30:] - infer_result[1][:-1][30:]
+        tf.debugging.assert_near(diff_operation, tf.zeros(diff_operation.shape), atol=1e-2)
+
+        diff_operation = infer_result[3][1:][30:] - infer_result[3][:-1][30:]
+        tf.debugging.assert_near(diff_operation, tf.zeros(diff_operation.shape), atol=1e-2)
+
+        tf.debugging.assert_shapes([(infer_result[0], (obs_len, state_dim)), # filtered_means
+                                    (infer_result[1], (obs_len, state_dim, state_dim)), # filtered_covs
+                                    (infer_result[2], (obs_len, state_dim)), # predicted_means
+                                    (infer_result[3], (obs_len, state_dim, state_dim)),# predicted_covs
+                                        ])
+
+def debug_plot(tfp_result, true_state):
+    plt.plot(tfp_result, color='blue', linewidth=1)
+    plt.plot(true_state, '-.', color='red', linewidth=1)
+    plt.show()

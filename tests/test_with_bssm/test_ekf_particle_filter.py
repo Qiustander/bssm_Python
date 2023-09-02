@@ -10,6 +10,7 @@ import os.path as pth
 import os
 import tensorflow as tf
 import matplotlib.pyplot as plt
+
 tf.random.set_seed(123)
 
 os.environ["CUDA_VISIBLE_DEVICES"] = "0"
@@ -55,29 +56,33 @@ class TestBootstrapParticleFilter:
           log_prior_pdf = pntrs$log_prior_pdf,
           n_states = 1, n_etas = 1, state_names = "state")
         
-        infer_result <- ukf(model_nlg, alpha = 0.01, beta = 2, kappa = 1)
+        infer_result <- ekpf_filter(model_nlg, particles = 200)
             """)
         r_result = ro.r("infer_result")
         observation = np.array(ro.r("y"))
-        size_y, observation = check_y(observation.astype("float32")) # return time length and feature numbers
+        size_y, observation = check_y(observation.astype("float32"))  # return time length and feature numbers
         num_timesteps, observation_size = size_y
 
         model_obj = NonlinearSSM.create_model(num_timesteps=num_timesteps,
-                                 observation_size=observation_size,
-                                 latent_size=1,
-                                 initial_state_mean=0.1,
-                                 initial_state_cov=0,
-                                mu_state=0.2,
-                                rho_state=0.7,
-                                 state_noise_std=0.5,
-                                 obs_noise_std=0.1,
-                                 nonlinear_type="nlg_ar_exp")
+                                              observation_size=observation_size,
+                                              latent_size=1,
+                                              initial_state_mean=0.1,
+                                              initial_state_cov=0,
+                                              mu_state=0.2,
+                                              rho_state=0.7,
+                                              state_noise_std=0.5,
+                                              obs_noise_std=0.1,
+                                              nonlinear_type="nlg_ar_exp")
 
-        # infer_result = model_obj.unscented_Kalman_filter(observation, alpha=1e-2, beta=2., kappa=1.)
-        infer_result = extended_kalman_particle_filter(model_obj, observation,
-                                                       resample_fn='stratified',
-                                                       resample_ess=0.5,
-                                                       num_particles=100)
+        @tf.function
+        def run_method():
+            infer_result = extended_kalman_particle_filter(model_obj,
+                                                           observation,
+                                                           resample_ess=1.,
+                                                           num_particles=200)
+            return infer_result
+
+        infer_result = run_method()
 
         true_state = np.array(ro.r("x"))[..., None]
         plt.plot(infer_result[0].numpy(), color='blue', linewidth=1)
@@ -113,7 +118,7 @@ class TestBootstrapParticleFilter:
           log_prior_pdf = pntrs$log_prior_pdf,
           n_states = 1, n_etas = 1, state_names = "state")
 
-        infer_result <- bootstrap_filter(model_nlg, particles = 1000)
+        infer_result <- ekpf_filter(model_nlg, particles = 200)
             """)
         r_result = ro.r("infer_result")
 
@@ -122,18 +127,22 @@ class TestBootstrapParticleFilter:
         num_timesteps, observation_size = size_y
 
         model_obj = NonlinearSSM.create_model(num_timesteps=num_timesteps,
-                                             observation_size=observation_size,
-                                             latent_size=1,
-                                             initial_state_mean=0,
-                                             initial_state_cov=1.,
-                                             state_noise_std=0.1,
-                                             obs_noise_std=0.2,
-                                             nonlinear_type="nlg_sin_exp")
-        # infer_result = model_obj.unscented_Kalman_filter(observation)
-        infer_result = extended_kalman_particle_filter(model_obj, observation,
-                                                       resample_fn='stratified',
-                                                       resample_ess=1.0,
-                                                       num_particles=1000)
+                                              observation_size=observation_size,
+                                              latent_size=1,
+                                              initial_state_mean=0,
+                                              initial_state_cov=1.,
+                                              state_noise_std=0.1,
+                                              obs_noise_std=0.2,
+                                              nonlinear_type="nlg_sin_exp")
+        @tf.function
+        def run_method():
+            infer_result = extended_kalman_particle_filter(model_obj,
+                                                           observation,
+                                                           resample_ess=1.,
+                                                           num_particles=200)
+            return infer_result
+
+        infer_result = run_method()
 
         true_state = np.array(ro.r("x"))[..., None]
         plt.plot(infer_result[0].numpy(), color='blue', linewidth=1)
@@ -148,7 +157,8 @@ class TestBootstrapParticleFilter:
         # compare predicted_means
         tf.debugging.assert_near(r_result[0][1:, ...], infer_result.predicted_mean.numpy(), atol=1e-1)
         # compare predicted_covs
-        tf.debugging.assert_near(r_result[2][..., 1:], infer_result.predicted_variance.numpy().transpose(1, 2, 0), atol=1e-1)
+        tf.debugging.assert_near(r_result[2][..., 1:], infer_result.predicted_variance.numpy().transpose(1, 2, 0),
+                                 atol=1e-1)
         # compare log likelihood
         tf.debugging.assert_near(r_result[-2], infer_result.incremental_log_marginal_likelihoods.numpy()[-1], atol=1e-3)
 
@@ -215,7 +225,7 @@ class TestBootstrapParticleFilter:
         infer_result = extended_kalman_particle_filter(model_obj, observation,
                                                        resample_fn='stratified',
                                                        resample_ess=0.5,
-                                                       num_particles=100)        # true_state = np.array(ro.r("x"))[..., None]
+                                                       num_particles=100)  # true_state = np.array(ro.r("x"))[..., None]
         # plt.plot(infer_result[0][:,0].numpy(), color='blue', linewidth=1)
         # plt.plot(r_result[1][:,0], color='green', linewidth=1)
         # plt.plot(true_state[:,0], '-.', color='red', linewidth=1)
@@ -229,6 +239,3 @@ class TestBootstrapParticleFilter:
         tf.debugging.assert_near(r_result[0][1:, ...], infer_result[2].numpy(), atol=1e-3)
         # compare predicted_covs
         tf.debugging.assert_near(r_result[2][..., 1:], infer_result[3].numpy().transpose(1, 2, 0), atol=1e-3)
-
-
-

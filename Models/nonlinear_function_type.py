@@ -12,6 +12,20 @@ Note: need to use tf.stack/tf.concat for each dimension of observation/state in 
 """
 
 
+def jacobian_fn(jaco_fucn):
+    def inner_wrap(t, x):
+        with tf.GradientTape() as g:
+            g.watch(x)
+            y = jaco_fucn(t, x)
+        if len(x.shape) > 1:
+            jaco_matrix = g.batch_jacobian(y, x)
+        else:
+            jaco_matrix = g.jacobian(y, x)
+        return jaco_matrix
+
+    return inner_wrap
+
+
 def nonlinear_fucntion(function_type,
                        obs_len,
                        state_dim,
@@ -65,18 +79,7 @@ def nonlinear_fucntion(function_type,
             initial_state_prior: [latent_size]
     """
 
-    def jacobian_fn(jaco_fucn):
-        def inner_wrap(t, x):
-            with tf.GradientTape() as g:
-                g.watch(x)
-                y = jaco_fucn(t, x)
-            if len(x.shape) > 1:
-                jaco_matrix = g.batch_jacobian(y, x)
-            else:
-                jaco_matrix = g.jacobian(y, x)
-            return jaco_matrix
 
-        return inner_wrap
 
     # observation_fn = None
     # observation_dist = None
@@ -198,7 +201,7 @@ def nonlinear_fucntion(function_type,
         observation_fn = lambda t, x: tf.cast(tf.stack([x[..., 0]], axis=-1), dtype=dtype)
         observation_dist = lambda t, x: tfd.MultivariateNormalLinearOperator(
             loc=observation_fn(t, x) + tf.convert_to_tensor(input_obs, dtype=dtype),
-            scale_=tf.linalg.LinearOperatorFullMatrix(tf.cast(
+            scale=tf.linalg.LinearOperatorFullMatrix(tf.cast(
                 check_obs_mtx_noise(obs_noise, obs_dim, obs_len), dtype=dtype)))
 
         transition_fn = lambda t, x: tf.cast(tf.stack([x[..., 0]], axis=-1), dtype=dtype)
@@ -320,10 +323,6 @@ def _process_mtx_tv(time_vary_mtx, static_shape):
             return time_vary_mtx
         else:
             return tf.gather(time_vary_mtx, indices=t, axis=-1)
-        # result = tf.cond(tf.equal(tf.rank(time_vary_mtx), tf.get_static_value(static_shape)),
-        #                lambda: time_vary_mtx,
-        #                lambda: tf.gather(time_vary_mtx, indices=t, axis=-1))
-        # return result
 
     return matrix_tv
 
@@ -331,15 +330,24 @@ def _process_mtx_tv(time_vary_mtx, static_shape):
 def _batch_multiply(former_mtx):
     def inner_multiply(t, latter_mtx):
 
-        # Ensure that latter_mtx is 2D even if it was 1D
-        latter_mtx_2d = tf.reshape(latter_mtx, [-1, tf.shape(latter_mtx)[-1]])
-
-        # Perform the multiplication
-        result = tf.matmul(former_mtx(t), latter_mtx_2d, transpose_b=True)
-
         if ps.rank(latter_mtx) == 1:
-            return tf.squeeze(result, axis=-1)
+            latter_mtx_reshape = tf.reshape(latter_mtx, [tf.shape(latter_mtx)[-1], -1])
+            result = tf.matmul(former_mtx(t), latter_mtx_reshape)
+            result = tf.squeeze(result, axis=-1)
         else:
-            return tf.transpose(result)
+            latter_mtx_reshape = latter_mtx
+            result = tf.matmul(former_mtx(t), latter_mtx_reshape)
+
+        return result
+        # # Ensure that latter_mtx is 2D even if it was 1D
+        # latter_mtx_2d = tf.reshape(latter_mtx, [-1, tf.shape(latter_mtx)[-1]])
+        #
+        # # Perform the multiplication
+        # result = tf.matmul(former_mtx(t), latter_mtx_2d, transpose_b=True)
+        #
+        # if ps.rank(latter_mtx) == 1:
+        #     return tf.squeeze(result, axis=-1)
+        # else:
+        #     return tf.transpose(result)
 
     return inner_multiply

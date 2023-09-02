@@ -33,7 +33,7 @@ class SamplingKernelResults(
 
 
 class SamplingKernel(mcmc.TransitionKernel):
-    """Minimal conditional sampling Kernel based on specific
+    """Minimal conditional sampling Kernel for Gibbs
     """
 
     def __init__(self,
