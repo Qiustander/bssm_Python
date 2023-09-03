@@ -5,4 +5,4 @@ Dependency: rpy2 -  not on Windows
 ### Current Issues:
 * modify the UKF and recompile the bssm package 
 * Deal with the drop-rank state noise matrix R_t
-* Remove the last predictive mean
+* update model in the tf static graph, need to rewrite check_argument.py to be compatible with tf.Tensor

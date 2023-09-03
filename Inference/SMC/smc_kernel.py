@@ -245,7 +245,7 @@ class SequentialMonteCarlo(kernel_base.TransitionKernel):
     def resample_fn(self):
         return self._resample_fn
 
-    def one_step(self, state, kernel_results, auxiliary_fn=None, seed=None):
+    def one_step(self, state, kernel_results, is_apf=False, seed=None):
         """Takes one Sequential Monte Carlo inference step.
 
     Args:
@@ -271,11 +271,6 @@ class SequentialMonteCarlo(kernel_base.TransitionKernel):
             with tf.name_scope('one_step'):
 
                 state = WeightedParticles(*state)  # Canonicalize.
-                if auxiliary_fn is not None:
-                    dummy_indicator = 1
-                else:
-                    dummy_indicator = 0
-                    auxiliary_fn = lambda a, b: state.log_weights
 
                 seed = samplers.sanitize_seed(seed)
                 proposal_seed, resample_seed = samplers.split_seed(seed)
@@ -289,15 +284,6 @@ class SequentialMonteCarlo(kernel_base.TransitionKernel):
                     ps.maximum(0, kernel_results.steps - 1),
                     state,
                     seed=proposal_seed)
-
-                # APF
-                auxiliary_log_weights = tf.cond(tf.equal(tf.get_static_value(dummy_indicator), 1),
-                                                lambda: proposed_state.log_weights +
-                                                                          auxiliary_fn(kernel_results.steps,
-                                                                                       proposed_state.particles),
-                                                lambda: proposed_state.log_weights)
-                tensorshape_util.set_shape(auxiliary_log_weights, state.log_weights.shape)
-                proposed_state = proposed_state._replace(log_weights=auxiliary_log_weights)
 
                 incremental_log_marginal_likelihood = tfp.math.reduce_logmeanexp(proposed_state.log_weights) - \
                                                                tfp.math.reduce_logmeanexp(last_weights)
@@ -347,11 +333,10 @@ class SequentialMonteCarlo(kernel_base.TransitionKernel):
 
                 # unnormalized
                 last_adjust_aux_weights = tf.cond(do_resample,
-                                                  lambda: tf.cond(tf.equal(
-                                                      tf.get_static_value(dummy_indicator), 1),
+                                                  lambda: tf.cond(tf.constant(is_apf, dtype=tf.bool),
                                                       lambda: tf.nest.map_structure(gather_ancestors,
                                                                                     tf.nn.log_softmax(log_weights, axis=0) -
-                                                                                    tf.nn.log_softmax(auxiliary_log_weights, axis=0)) ,
+                                                                                    tf.nn.log_softmax(state.log_weights, axis=0)) ,
                                                       lambda: log_weights),
                                                   lambda: log_weights)
 

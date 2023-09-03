@@ -71,11 +71,13 @@ class TestTrajectoryReconstruct:
         infer_result_me = run_pf_filter()
 
         # compare filtered_means
-        tf.debugging.assert_near(infer_result_tfp[0][50:], infer_result_me.filtered_mean.numpy()[50:], atol=1e-5)
+        tf.debugging.assert_near(infer_result_tfp[0], infer_result_me.filtered_mean.numpy(), atol=1e-5)
         # compare filtered_covs
-        tf.debugging.assert_near(infer_result_tfp[2][50:], infer_result_me.filtered_variance.numpy()[50:], atol=1e-5)
+        tf.debugging.assert_near(infer_result_tfp[2], infer_result_me.filtered_variance.numpy(), atol=1e-5)
         # compare predicted_means
-        tf.debugging.assert_near(infer_result_tfp[1][50:], infer_result_me.predicted_mean.numpy()[50:], atol=1e-5)
+        tf.debugging.assert_near(infer_result_tfp[1], infer_result_me.predicted_mean.numpy(), atol=1e-5)
+        # compare likelihood
+        tf.debugging.assert_near(infer_result_tfp[-1][1:], infer_result_me.incremental_log_marginal_likelihoods.numpy()[1:], atol=1e-5)
 
     @pytest.mark.parametrize(("num_particles", "seed", "num_timesteps", "model_obj"),
                              [(num_particles, seed, num_timesteps, model_obj)])

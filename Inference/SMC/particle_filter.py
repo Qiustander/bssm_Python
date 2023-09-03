@@ -106,12 +106,14 @@ Args:
 """
 Particle Filter Main Functions: Bootstrap, EKPF, APF
 """
+
+
 def _default_trace_fn(state, kernel_results):
-  return (state.particles,
-          state.log_weights,
-          kernel_results.parent_indices,
-          kernel_results.incremental_log_marginal_likelihood,
-          kernel_results.accumulated_log_marginal_likelihood)
+    return (state.particles,
+            state.log_weights,
+            kernel_results.parent_indices,
+            kernel_results.incremental_log_marginal_likelihood,
+            kernel_results.accumulated_log_marginal_likelihood)
 
 
 @docstring_util.expand_docstring(
@@ -194,6 +196,10 @@ def particle_filter(observations,
 
     resample_fn = _check_resample_fn(resample_fn)
 
+    # if aux not exist then reset it
+    is_apf = False if auxiliary_fn is None else True
+    auxiliary_fn = _dummy_auxiliary_fn if auxiliary_fn is None else auxiliary_fn
+
     if filter_method == 'bsf' and proposal_fn:
         raise AssertionError('Bootstrap Filter does not need extra proposal distribution!')
     if filter_method == 'ekf':
@@ -230,6 +236,7 @@ def particle_filter(observations,
             num_particles=num_particles,
             is_conditional=is_conditional,
             conditional_sample=conditional_sample,
+            auxiliary_fn=auxiliary_fn,
             seed=init_seed)
         propose_and_update_log_weights_fn = (
             _particle_filter_propose_and_update_log_weights_fn(
@@ -240,6 +247,7 @@ def particle_filter(observations,
                 filter_method=filter_method,
                 transition_fn_grad=transition_fn_grad,
                 observation_fn_grad=observation_fn_grad,
+                auxiliary_fn=auxiliary_fn,
                 num_transitions_per_observation=num_transitions_per_observation,
             ))
 
@@ -258,7 +266,7 @@ def particle_filter(observations,
             seed, state, results = seed_state_results
             one_step_seed, next_seed = samplers.split_seed(seed)
             next_state, next_results = kernel.one_step(
-                state, results, auxiliary_fn=None, seed=one_step_seed)
+                state, results, is_apf=is_apf, seed=one_step_seed)
             return next_seed, next_state, next_results
 
         final_seed_state_result, traced_results = loop_util.trace_scan(
@@ -302,6 +310,7 @@ def _particle_filter_initial_weighted_particles(observations,
                                                 num_particles,
                                                 is_conditional,
                                                 conditional_sample,
+                                                auxiliary_fn,
                                                 seed=None):
     """Initialize a set of weighted particles including the first observation."""
     # Propose an initial state.
@@ -311,15 +320,15 @@ def _particle_filter_initial_weighted_particles(observations,
         initial_log_weights = ps.zeros_like(
             initial_state_prior.log_prob(initial_state))
     else:
-
         observation = tf.nest.map_structure(
             lambda x, step=0: tf.gather(x, 0), observations)
-        if filter_method == 'ekf':
-            initial_state_dist = initial_state_proposal(initial_state_prior, observation,
-                                                        transition_fn, observation_fn,
-                                                        transition_fn_grad, observation_fn_grad)
-        else:
-            initial_state_dist = initial_state_proposal
+
+        initial_state_dist = tf.cond(filter_method == 'ekf',
+                                     lambda: initial_state_proposal(initial_state_prior, observation,
+                                                                    transition_fn, observation_fn,
+                                                                    transition_fn_grad, observation_fn_grad),
+                                     lambda: initial_state_proposal)
+
         initial_state = initial_state_dist.sample(num_particles, seed=seed)
         initial_log_weights = (initial_state_prior.log_prob(initial_state) -
                                initial_state_dist.log_prob(initial_state))
@@ -331,6 +340,8 @@ def _particle_filter_initial_weighted_particles(observations,
                                                     indices=[update_idx],
                                                     updates=[replace_sample])
 
+    log_aux_weights = auxiliary_fn(0, initial_state, initial_log_weights, observations)
+
     # Return particles weighted by the initial observation.
     return smc_kernel.WeightedParticles(
         particles=initial_state,
@@ -338,7 +349,7 @@ def _particle_filter_initial_weighted_particles(observations,
             step=0,
             particles=initial_state,
             observations=observations,
-            observation_fn=observation_fn))
+            observation_fn=observation_fn) + log_aux_weights)
 
 
 def _particle_filter_propose_and_update_log_weights_fn(
@@ -349,6 +360,7 @@ def _particle_filter_propose_and_update_log_weights_fn(
         filter_method,
         transition_fn_grad,
         observation_fn_grad,
+        auxiliary_fn,
         num_transitions_per_observation=1):
     """Build a function specifying a particle filter update step."""
 
@@ -372,8 +384,6 @@ def _particle_filter_propose_and_update_log_weights_fn(
                                             transition_fn, observation_fn,
                                             transition_fn_grad, observation_fn_grad)
             else:
-                # proposal_dist = proposal_fn(step, particles, observation,
-                #                             transition_fn, observation_fn)
                 proposal_dist = proposal_fn(step, particles)
             assertions += _assert_batch_shape_matches_weights(
                 distribution=proposal_dist,
@@ -392,12 +402,15 @@ def _particle_filter_propose_and_update_log_weights_fn(
         else:
             proposed_particles = transition_dist.sample(seed=seed)
 
+
+        log_aux_weights = auxiliary_fn(step + 1, proposed_particles, log_weights, observations)
+
         with tf.control_dependencies(assertions):
             return smc_kernel.WeightedParticles(
                 particles=proposed_particles,
                 log_weights=log_weights + _compute_observation_log_weights(
-                    step+1, proposed_particles, observations, observation_fn,
-                    num_transitions_per_observation=num_transitions_per_observation))
+                    step + 1, proposed_particles, observations, observation_fn,
+                    num_transitions_per_observation=num_transitions_per_observation) + log_aux_weights)
 
     return propose_and_update_log_weights_fn
 
@@ -484,3 +497,7 @@ def _assert_batch_shape_matches_weights(distribution, weights_shape, diststr):
         assertions = [assert_util.assert_equal(a, b, message=msg)
                       for a, b in zip(shapes[1:], shapes[:-1])]
     return assertions
+
+
+def _dummy_auxiliary_fn(step, proposed_particles, log_weights, observations):
+    return tf.zeros(log_weights.shape, dtype=log_weights.dtype)

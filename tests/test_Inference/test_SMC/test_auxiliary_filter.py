@@ -37,7 +37,7 @@ class TestExtendKalmanFilter:
                                               obs_noise_std=0.1,
                                               nonlinear_type="constant_dynamic_univariate_test")
 
-        infer_result = extended_kalman_filter(model_obj, observation)
+        infer_result = auxiliary_particle_filter(model_obj, observation)
 
         # constant observation, must converge to this point
         tf.debugging.assert_near(infer_result[0][50:], observation[50:], atol=1e-6)
@@ -72,7 +72,7 @@ class TestExtendKalmanFilter:
                                               obs_noise_std=np.diag([0.1, 0.1, 0.1]),
                                               nonlinear_type="constant_dynamic_multivariate_test")
 
-        infer_result = extended_kalman_filter(model_obj, observation)
+        infer_result = auxiliary_particle_filter(model_obj, observation)
 
         # constant observation, must converge to this point
         tf.debugging.assert_near(infer_result[0][50:, 0], observation[50:, 0], atol=1e-6)

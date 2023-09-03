@@ -61,7 +61,7 @@ def auxiliary_particle_filter(ssm_model,
          accumulated_log_marginal_likelihood) = particle_filter(
             observations=observations,
             initial_state_prior=ssm_model.initial_state_prior,
-            auxiliary_fn=ssm_model.auxiliary_fn,
+            auxiliary_fn=ssm_model.auxiliary_fn if not is_gudied else None,
             transition_fn=ssm_model.transition_dist,
             observation_fn=ssm_model.observation_dist,
             num_particles=num_particles,
@@ -76,7 +76,6 @@ def auxiliary_particle_filter(ssm_model,
             seed=seed,
             name=name)
 
-        # state_dim = ssm_model.initial_state_prior.sample().shape[0]
         filtered_mean, predicted_mean, \
             filtered_variance, predicted_variance = posterior_mean_var(particles,
                                                                        log_weights,
