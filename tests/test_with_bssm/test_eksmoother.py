@@ -10,6 +10,7 @@ import os.path as pth
 import os
 import tensorflow as tf
 import matplotlib.pyplot as plt
+
 tf.random.set_seed(123)
 
 os.environ["CUDA_VISIBLE_DEVICES"] = "0"
@@ -60,24 +61,27 @@ class TestExtendedKalmanSmoother:
             """)
         r_result = ro.r("infer_result")
         observation = np.array(ro.r("y"))
-        size_y, observation = check_y(observation.astype("float32")) # return time length and feature numbers
+        size_y, observation = check_y(observation.astype("float32"))  # return time length and feature numbers
         num_timesteps, observation_size = size_y
 
         model_obj = NonlinearSSM.create_model(num_timesteps=num_timesteps,
-                                 observation_size=observation_size,
-                                 latent_size=1,
-                                 initial_state_mean=0.1,
-                                 initial_state_cov=0,
-                                mu_state=0.2,
-                                rho_state=0.5,
-                                 state_noise_std=1.,
-                                 obs_noise_std=0.1,
-                                 nonlinear_type="nlg_ar_exp")
+                                              observation_size=observation_size,
+                                              latent_size=1,
+                                              initial_state_mean=0.1,
+                                              initial_state_cov=0,
+                                              mu_state=0.2,
+                                              rho_state=0.5,
+                                              state_noise_std=1.,
+                                              obs_noise_std=0.1,
+                                              nonlinear_type="nlg_ar_exp")
 
-        infer_result = extended_kalman_smoother(model_obj, observation)
+        @tf.function
+        def run_method():
+            return extended_kalman_smoother(model_obj, observation)
 
+        infer_result = run_method()
         # compare smoothed_means
-        tf.debugging.assert_near(r_result[0][50:,...], infer_result[0].numpy()[50:, ...], atol=1e-0)
+        tf.debugging.assert_near(r_result[0][50:, ...], infer_result[0].numpy()[50:, ...], atol=1e-0)
         # compare smoothed_covs
         tf.debugging.assert_near(r_result[1][..., 50:], infer_result[1].numpy().transpose(1, 2, 0)[..., 50:], atol=1e-0)
 
@@ -109,21 +113,23 @@ class TestExtendedKalmanSmoother:
         num_timesteps, observation_size = size_y
 
         model_obj = NonlinearSSM.create_model(num_timesteps=num_timesteps,
-                                             observation_size=observation_size,
-                                             latent_size=1,
-                                             initial_state_mean=0,
-                                             initial_state_cov=1.,
-                                             state_noise_std=0.1,
-                                             obs_noise_std=0.2,
-                                             nonlinear_type="nlg_sin_exp")
+                                              observation_size=observation_size,
+                                              latent_size=1,
+                                              initial_state_mean=0,
+                                              initial_state_cov=1.,
+                                              state_noise_std=0.1,
+                                              obs_noise_std=0.2,
+                                              nonlinear_type="nlg_sin_exp")
 
-        infer_result = extended_kalman_smoother(model_obj, observation)
+        @tf.function
+        def run_method():
+            return extended_kalman_smoother(model_obj, observation)
 
+        infer_result = run_method()
         # compare smoothed_means
         tf.debugging.assert_near(r_result[0], infer_result[0].numpy(), atol=1e-4)
         # compare smoothed_covs
         tf.debugging.assert_near(r_result[1], infer_result[1].numpy().transpose(1, 2, 0), atol=1e-4)
-
 
     def test_kffilter_TFP_mvmodel(self):
         ro.r("""
@@ -185,16 +191,19 @@ class TestExtendedKalmanSmoother:
                                               obs_noise_std=np.diag([0.1, 0.1, 0.1]),
                                               dt=0.3,
                                               nonlinear_type="nlg_mv_model")
-        # infer_result_ekf = extended_kalman_filter(model_obj, observation)
-        infer_result = extended_kalman_smoother(model_obj, observation)
-        # for i in range(4):
-        #     debug_plot(infer_result[0][:,i].numpy(), infer_result_ekf[0][:,i], np.array(ro.r("x"))[:,i] )
+
+        @tf.function
+        def run_method():
+            return extended_kalman_smoother(model_obj, observation)
+
+        infer_result = run_method()
+        for i in range(4):
+            debug_plot(r_result[0][:,i].numpy(), infer_result[0][:,i], np.array(ro.r("x"))[:,i] )
 
         # compare smoothed_means
-        tf.debugging.assert_near(r_result[0][30:,...], infer_result[0].numpy()[30:, ...], atol=1e-4)
+        tf.debugging.assert_near(r_result[0][30:, ...], infer_result[0].numpy()[30:, ...], atol=1e-4)
         # compare smoothed_covs
         tf.debugging.assert_near(r_result[1][..., 30:], infer_result[1].numpy().transpose(1, 2, 0)[..., 30:], atol=1e-4)
-
 
 
 def debug_plot(tfp_result, r_result, true_state):

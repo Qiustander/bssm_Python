@@ -212,7 +212,7 @@ class TestKalmanSmootherMLG2:
         infer_result = model_obj.posterior_marginals(tf.convert_to_tensor(observation, dtype=model_obj.dtype))
 
         # compare smoothed_means
-        debug_plot(infer_result[0].numpy(), r_result[0], state)
+        # debug_plot(infer_result[0].numpy(), r_result[0], state)
         tf.debugging.assert_near(r_result[0], infer_result[0].numpy(), atol=1e-0)
         # compare smoothed_covs
         tf.debugging.assert_near(r_result[1], infer_result[1].numpy().transpose(1, 2, 0), atol=1e-4)

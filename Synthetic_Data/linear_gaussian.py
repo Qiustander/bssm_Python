@@ -13,7 +13,7 @@ def gen_data(testcase='multivariate',
         # Univariate
         state_dim = 1
         observed_dim = 1
-        state_mtx_noise = 0.9
+        state_mtx_noise = 1.3
         obs_mtx_noise = 0.25
         transition_matrix = 0.6
         observation_matrix = 1

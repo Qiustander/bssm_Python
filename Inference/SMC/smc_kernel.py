@@ -117,6 +117,18 @@ def _dummy_indices_like(indices):
         indices_shape)
 
 
+def _broadcast_resample(resample, particles):
+    """Returns do_resample  with the same shape like `particles`."""
+    broadcast_shape = ps.shape(particles)
+
+    rank_diff = ps.rank(particles) - ps.rank(resample) # 2 or 1
+
+    resample = resample[..., tf.newaxis] if rank_diff == 2 else resample
+
+    # Broadcast do_resample to the full shape of particles
+    return tf.broadcast_to(resample, broadcast_shape)
+
+
 def log_ess_from_log_weights(log_weights):
     """Computes log-ESS estimate from log-weights along axis=0."""
     with tf.name_scope('ess_from_log_weights'):
@@ -285,16 +297,17 @@ class SequentialMonteCarlo(kernel_base.TransitionKernel):
                     state,
                     seed=proposal_seed)
 
-                incremental_log_marginal_likelihood = tfp.math.reduce_logmeanexp(proposed_state.log_weights) - \
-                                                               tfp.math.reduce_logmeanexp(last_weights)
-
                 is_initial_step = ps.equal(kernel_results.steps, 0)
                 state = tf.nest.map_structure(
                     lambda a, b: tf.where(is_initial_step, a, b), state, proposed_state)
 
+                incremental_log_marginal_likelihood = tf.nest.map_structure(
+                    lambda a, b: tf.where(is_initial_step, a, b), tfp.math.reduce_logmeanexp(state.log_weights, axis=0),
+                    tfp.math.reduce_logmeanexp(state.log_weights, axis=0) - \
+                                                               tfp.math.reduce_logmeanexp(last_weights, axis=0))
+
                 # do resampling first for x_{t-1} -> w_{t-1}
                 do_resample = self.resample_criterion_fn(state)
-
                 # Some batch elements may require resampling and others not, so
                 # we first do the resampling for all elements, then select whether to
                 # use the resampled values for each batch element according to
@@ -319,26 +332,30 @@ class SequentialMonteCarlo(kernel_base.TransitionKernel):
                     target_log_weights=(state.log_weights
                                         if self.unbiased_gradients else None),
                     seed=resample_seed)
-                (resampled_particles,
-                 resample_indices,
+                do_resample_broadcasted = _broadcast_resample(do_resample, resampled_particles)
+                resampled_particles = tf.nest.map_structure(
+                    lambda r, p: tf.where(do_resample_broadcasted, r, p),
+                    resampled_particles, state.particles)
+                (resample_indices,
                  log_weights) = tf.nest.map_structure(
                     lambda r, p: tf.where(do_resample, r, p),
-                    (resampled_particles, resample_indices, weights_after_resampling),
-                    (state.particles, _dummy_indices_like(resample_indices),
+                    (resample_indices, weights_after_resampling),
+                    (_dummy_indices_like(resample_indices),
                      state.log_weights))
 
                 # In APF, the weights need to be adjusted, we place it after resamplinig
                 gather_ancestors = lambda x: (  # pylint: disable=g-long-lambda
                     mcmc_util.index_remapping_gather(x, resample_indices, axis=0))
+                adjust_apf_weights = tf.cond(tf.constant(is_apf, dtype=tf.bool),
+                                             lambda: tf.nest.map_structure(gather_ancestors, tf.nn.log_softmax(log_weights, axis=0) -
+                                                                                    tf.nn.log_softmax(state.log_weights, axis=0)),
+                                             lambda: log_weights)
 
                 # unnormalized
-                last_adjust_aux_weights = tf.cond(do_resample,
-                                                  lambda: tf.cond(tf.constant(is_apf, dtype=tf.bool),
-                                                      lambda: tf.nest.map_structure(gather_ancestors,
-                                                                                    tf.nn.log_softmax(log_weights, axis=0) -
-                                                                                    tf.nn.log_softmax(state.log_weights, axis=0)) ,
-                                                      lambda: log_weights),
-                                                  lambda: log_weights)
+                last_adjust_aux_weights = tf.nest.map_structure(
+                                                        lambda r, p: tf.where(do_resample, r, p),
+                                                        adjust_apf_weights,
+                                                        log_weights)
 
                 tensorshape_util.set_shape(last_adjust_aux_weights, state.log_weights.shape)
 

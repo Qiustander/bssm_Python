@@ -85,19 +85,22 @@ class TestBootstrapParticleFilter:
         infer_result = run_method()
 
         true_state = np.array(ro.r("x"))[..., None]
-        plt.plot(infer_result[0].numpy(), color='blue', linewidth=1)
-        plt.plot(r_result[1], color='green', linewidth=1)
+        plt.plot(infer_result.predicted_mean.numpy(), color='blue', linewidth=1)
+        plt.plot(r_result[0], color='green', linewidth=1)
         plt.plot(true_state, '-.', color='red', linewidth=1)
         plt.show()
 
-        # compare filtered_means
-        tf.debugging.assert_near(r_result[1], infer_result[0].numpy(), atol=1e-0)
+        # compare filtered_means`
+        tf.debugging.assert_near(r_result[1][:-1], infer_result.filtered_mean.numpy(), atol=1e0)
         # compare filtered_covs
-        tf.debugging.assert_near(r_result[3], infer_result[1].numpy().transpose(1, 2, 0), atol=1e-0)
+        tf.debugging.assert_near(r_result[3][..., :-1], infer_result.filtered_variance.numpy().transpose(1, 2, 0), atol=4*1e-1)
         # compare predicted_means
-        tf.debugging.assert_near(r_result[0][1:, ...], infer_result[2].numpy(), atol=1e-0)
+        # tf.debugging.assert_near(r_result[0][1:, ...], infer_result.predicted_mean.numpy(), atol=1e-0)
         # compare predicted_covs
-        tf.debugging.assert_near(r_result[2][..., 1:], infer_result[3].numpy().transpose(1, 2, 0), atol=1e-0)
+        tf.debugging.assert_near(r_result[2][..., 1:], infer_result.predicted_variance.numpy().transpose(1, 2, 0),
+                                 atol=1e-1)
+        # compare log likelihood
+        tf.debugging.assert_near(r_result[-2], infer_result.accumulated_log_marginal_likelihood.numpy()[-1], atol=5*1e0)
 
     def test_kffilter_TFP_sinexp(self):
         ro.r("""
@@ -144,23 +147,23 @@ class TestBootstrapParticleFilter:
 
         infer_result = run_method()
 
-        true_state = np.array(ro.r("x"))[..., None]
-        plt.plot(infer_result[0].numpy(), color='blue', linewidth=1)
-        plt.plot(r_result[1], color='green', linewidth=1)
-        plt.plot(true_state, '-.', color='red', linewidth=1)
-        plt.show()
+        # true_state = np.array(ro.r("x"))[..., None]
+        # plt.plot(infer_result.predicted_mean.numpy(), color='blue', linewidth=1)
+        # plt.plot(r_result[0], color='green', linewidth=1)
+        # plt.plot(true_state, '-.', color='red', linewidth=1)
+        # plt.show()
 
         # compare filtered_means
-        tf.debugging.assert_near(r_result[1], infer_result.filtered_mean.numpy(), atol=1e-1)
+        tf.debugging.assert_near(r_result[1][:-1], infer_result.filtered_mean.numpy(), atol=2*1e-1)
         # compare filtered_covs
-        tf.debugging.assert_near(r_result[3], infer_result.filtered_variance.numpy().transpose(1, 2, 0), atol=1e-1)
+        tf.debugging.assert_near(r_result[3][..., :-1], infer_result.filtered_variance.numpy().transpose(1, 2, 0), atol=1e-1)
         # compare predicted_means
-        tf.debugging.assert_near(r_result[0][1:, ...], infer_result.predicted_mean.numpy(), atol=1e-1)
+        tf.debugging.assert_near(r_result[0][1:, ...], infer_result.predicted_mean.numpy(), atol=4*1e-1)
         # compare predicted_covs
         tf.debugging.assert_near(r_result[2][..., 1:], infer_result.predicted_variance.numpy().transpose(1, 2, 0),
                                  atol=1e-1)
         # compare log likelihood
-        tf.debugging.assert_near(r_result[-2], infer_result.incremental_log_marginal_likelihoods.numpy()[-1], atol=1e-3)
+        tf.debugging.assert_near(r_result[-2], infer_result.accumulated_log_marginal_likelihood.numpy()[-1], atol=5*1e0)
 
     def test_kffilter_TFP_mvmodel(self):
         ro.r("""

@@ -211,7 +211,6 @@ def _unscented_kalman_filter_one_step(
     current_state, current_cov, predict_state, predict_cov, _, time_step = state
     observation_size_is_static_and_scalar = (observation.shape[-1] == 1)
 
-
     chol_cov_mtx = tf.linalg.cholesky(predict_cov)  # lower triangular L
     indices = tf.range(num_sigma)
     sigma_points_x = tf.vectorized_map(

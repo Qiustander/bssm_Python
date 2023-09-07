@@ -40,7 +40,7 @@ def check_mu(x):
 
     if isinstance(x, np.ndarray) and len(x) == 1:
         return x
-    if type(x) in [float, int, list, np.float32, np.float64]:
+    if type(x) in [float, int, list, tuple, np.float32, np.float64]:
         return np.array(x)[None]
     if not x.shape:
         x = x[None]

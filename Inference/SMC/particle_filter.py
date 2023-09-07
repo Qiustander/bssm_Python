@@ -323,11 +323,12 @@ def _particle_filter_initial_weighted_particles(observations,
         observation = tf.nest.map_structure(
             lambda x, step=0: tf.gather(x, 0), observations)
 
-        initial_state_dist = tf.cond(filter_method == 'ekf',
-                                     lambda: initial_state_proposal(initial_state_prior, observation,
+        if filter_method == 'ekf':
+            initial_state_dist = initial_state_proposal(initial_state_prior, observation,
                                                                     transition_fn, observation_fn,
-                                                                    transition_fn_grad, observation_fn_grad),
-                                     lambda: initial_state_proposal)
+                                                                    transition_fn_grad, observation_fn_grad)
+        else:
+            initial_state_dist = initial_state_proposal
 
         initial_state = initial_state_dist.sample(num_particles, seed=seed)
         initial_log_weights = (initial_state_prior.log_prob(initial_state) -
@@ -365,8 +366,6 @@ def _particle_filter_propose_and_update_log_weights_fn(
     """Build a function specifying a particle filter update step."""
 
     def propose_and_update_log_weights_fn(step, state, seed=None):
-        # trace_scan starts from step 0, so add 1 for correct step num
-        # step = step + 1
         particles, log_weights = state.particles, state.log_weights
         transition_dist = transition_fn(step, particles)
         assertions = _assert_batch_shape_matches_weights(
@@ -401,7 +400,6 @@ def _particle_filter_propose_and_update_log_weights_fn(
             # log_weights = tf.nn.log_softmax(log_weights, axis=0)
         else:
             proposed_particles = transition_dist.sample(seed=seed)
-
 
         log_aux_weights = auxiliary_fn(step + 1, proposed_particles, log_weights, observations)
 

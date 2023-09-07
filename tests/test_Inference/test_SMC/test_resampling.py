@@ -10,8 +10,8 @@ from filterpy_resampling import stratified_resample, systematic_resample, multin
 
 
 class TestResampling:
-    num_particles = 100
-    seed = 123
+    num_particles = 300
+    seed = 489
 
     @pytest.mark.parametrize(("num_particles", "seed"),
                              [(num_particles, seed)])
@@ -105,3 +105,62 @@ class TestResampling:
         resample_indx_self = resample._resample_stratified(log_prob, resample_num=num_particles, seed=seed)
 
         tf.debugging.assert_equal(resample_indx_tfp, resample_indx_self)
+
+    @pytest.mark.parametrize(("num_particles", "seed"),
+                             [(num_particles, seed)])
+    def test_stratified_resample_batch(self, num_particles, seed):
+
+        # test the batch resampling which is used in MCMC
+        batch = 10
+        tf.random.set_seed(seed)
+        prob = tfd.Normal(loc=0.4, scale=0.4).sample([num_particles, batch])
+        log_prob = tf.nn.log_softmax(prob, axis=0)
+
+        tf.random.set_seed(seed)
+        resample_indx_tfp = resample_stratified(log_prob, num_particles, (), seed=seed)
+
+        tf.random.set_seed(seed)
+        resample_indx_self = resample._resample_stratified(log_prob, resample_num=num_particles, seed=seed)
+        resample_indx_tfp = ps.cast(resample_indx_tfp, tf.float32)
+        resample_indx_self = ps.cast(resample_indx_self, tf.float32)
+
+        tf.debugging.assert_near(resample_indx_tfp, resample_indx_self, atol=2e0)
+
+    @pytest.mark.parametrize(("num_particles", "seed"),
+                             [(num_particles, seed)])
+    def test_systematic_resample_batch(self, num_particles, seed):
+
+        # test the batch resampling which is used in MCMC
+        batch = 10
+        tf.random.set_seed(seed)
+        prob = tfd.Normal(loc=0.4, scale=0.4).sample([num_particles, batch])
+        log_prob = tf.nn.log_softmax(prob, axis=0)
+
+        tf.random.set_seed(seed)
+        resample_indx_tfp = resample_systematic(log_prob, num_particles, (), seed=seed)
+
+        tf.random.set_seed(seed)
+        resample_indx_self = resample._resample_systematic(log_prob, resample_num=num_particles, seed=seed)
+        resample_indx_tfp = ps.cast(resample_indx_tfp, tf.float32)
+        resample_indx_self = ps.cast(resample_indx_self, tf.float32)
+
+        tf.debugging.assert_near(resample_indx_tfp, resample_indx_self, atol=2e0)
+
+
+    @pytest.mark.parametrize(("num_particles", "seed"),
+                             [(num_particles, seed)])
+    def test_multinomial_resample_batch(self, num_particles, seed):
+
+        # test the batch resampling which is used in MCMC
+        batch = 10
+        tf.random.set_seed(seed)
+        prob = tfd.Normal(loc=0.4, scale=0.4).sample([num_particles, batch])
+        log_prob = tf.nn.log_softmax(prob, axis=0)
+
+        tf.random.set_seed(seed)
+        resample_indx_tfp = resample_independent(log_prob, num_particles, (), seed=seed)
+
+        tf.random.set_seed(seed)
+        resample_indx_self = resample._resample_multinomial(log_prob, resample_num=num_particles, seed=seed)
+
+        tf.debugging.assert_equal(resample_indx_tfp.shape, resample_indx_self.shape)

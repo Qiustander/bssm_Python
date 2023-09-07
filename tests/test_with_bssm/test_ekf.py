@@ -73,21 +73,26 @@ class TestExtendedKalmanFilter:
                                               observation_size=observation_size,
                                               latent_size=1,
                                               initial_state_mean=0.1,
-                                              initial_state_cov=0,
+                                              initial_state_cov=1./np.sqrt(1 - 0.5**2),
                                               mu_state=0.2,
                                               rho_state=0.5,
                                               state_noise_std=1.,
                                               obs_noise_std=0.1,
                                               nonlinear_type="nlg_ar_exp")
-        infer_result = extended_kalman_filter(model_obj, observation)
-        # infer_result2 = model_obj.extended_Kalman_filter(observation)
-        debug_plot(infer_result[0].numpy(), r_result[1], np.array(ro.r("x"))[..., None])
-        plt.plot(infer_result[1].numpy().squeeze())
-        plt.legend("Filtered Error Covariance")
-        plt.show()
 
-        # compare loglik
-        # tf.debugging.assert_near(r_result[-1], infer_result[-1].numpy().sum(), atol=1e-1)
+        @tf.function
+        def run_method():
+
+            return extended_kalman_filter(model_obj, observation)
+
+        infer_result = run_method()
+
+        # infer_result2 = model_obj.extended_Kalman_filter(observation)
+        # debug_plot(infer_result[0].numpy(), r_result[1], np.array(ro.r("x"))[..., None])
+        # plt.plot(infer_result[1].numpy().squeeze())
+        # plt.legend("Filtered Error Covariance")
+        # plt.show()
+
         # compare filtered_means
         tf.debugging.assert_near(r_result[1], infer_result[0].numpy(), atol=5*1e-0)
         # compare filtered_covs
@@ -133,10 +138,14 @@ class TestExtendedKalmanFilter:
                                               obs_noise_std=0.2,
                                               nonlinear_type="nlg_sin_exp")
 
-        infer_result = extended_kalman_filter(model_obj, observation)
-        debug_plot(infer_result[0].numpy(), r_result[1], np.array(ro.r("x"))[..., None])
-        # plt.plot(infer_result[1].numpy().squeeze())
-        plt.show()
+        @tf.function
+        def run_method():
+            return extended_kalman_filter(model_obj, observation)
+
+        infer_result = run_method()
+        # debug_plot(infer_result[0].numpy(), r_result[1], np.array(ro.r("x"))[..., None])
+        # # plt.plot(infer_result[1].numpy().squeeze())
+        # plt.show()
 
         # compare loglik
         tf.debugging.assert_near(r_result[-1], infer_result[-1].numpy().sum(), atol=1e-1)
@@ -209,10 +218,15 @@ class TestExtendedKalmanFilter:
                                               obs_noise_std=np.diag([0.1, 0.1, 0.1]),
                                               dt=0.3,
                                               nonlinear_type="nlg_mv_model")
-        infer_result = extended_kalman_filter(model_obj, observation)
-        debug_plot(infer_result[0].numpy()[:, 0], r_result[1][:, 0], np.array(ro.r("x"))[:, 0])
-        plt.plot(infer_result[1].numpy()[:, 0, 0])
-        plt.show()
+
+        @tf.function
+        def run_method():
+            return extended_kalman_filter(model_obj, observation)
+
+        infer_result = run_method()
+        # debug_plot(infer_result[0].numpy()[:, 0], r_result[1][:, 0], np.array(ro.r("x"))[:, 0])
+        # plt.plot(infer_result[1].numpy()[:, 0, 0])
+        # plt.show()
 
         # compare filtered_means
         tf.debugging.assert_near(r_result[1][50:, :], infer_result[0][50:, :].numpy(), atol=1e-4)

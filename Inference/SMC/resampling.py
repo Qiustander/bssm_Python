@@ -4,6 +4,7 @@ import tensorflow as tf
 from tensorflow_probability.python.distributions import uniform
 from tensorflow_probability.python.internal import prefer_static as ps
 from tensorflow_probability.python.mcmc.internal import util as mcmc_util
+from tensorflow_probability.python.internal import distribution_util as dist_util
 
 __all__ = [
     'resample',
@@ -100,9 +101,11 @@ def _resample_residual(weights, resample_num, seed=None, name=None):
        93(443):1032–1044, 1998.
     """
     with tf.name_scope(name or 'resample_resiudual'):
+        # TODO: batch based
+        weights = tf.math.log_softmax(weights, axis=0)
         weights = tf.exp(tf.convert_to_tensor(weights, dtype_hint=tf.float32))
         if not resample_num:
-            resample_num = ps.shape(weights)[-1]
+            resample_num = ps.shape(weights)[0]
 
         # deterministic sampling
         weights_int = resample_num * weights
@@ -110,7 +113,7 @@ def _resample_residual(weights, resample_num, seed=None, name=None):
         res_weight = weights - floor_weight
 
         # deal with interger part
-        range_indx = tf.range(ps.shape(weights)[-1])
+        range_indx = tf.range(ps.shape(weights)[0])
         int_weight = tf.repeat(range_indx,
                                  tf.cast(floor_weight, dtype=range_indx.dtype))
 
@@ -157,10 +160,13 @@ def _resample_stratified(weights, resample_num, seed=None, name=None):
         weights = tf.exp(tf.convert_to_tensor(weights, dtype_hint=tf.float32))
 
         if not resample_num:
-            resample_num = ps.shape(weights)[-1]
+            resample_num = ps.shape(weights)[0]
+        batch_shape = ps.shape(weights)[1:]
+        points_shape = ps.concat([[resample_num],
+                                  batch_shape], axis=0)
+        full_prob_shape = ps.concat([[1],
+                                     batch_shape], axis=0)
 
-        points_shape = ps.concat([ps.shape(weights)[:-1],
-                                  [resample_num]], axis=0)
         # Draw an offset for every element of an event, with size [b, Ns]
         interval_width = ps.cast(1. / resample_num, dtype=weights.dtype)
         offsets = uniform.Uniform(low=ps.cast(0., dtype=weights.dtype),
@@ -170,18 +176,28 @@ def _resample_stratified(weights, resample_num, seed=None, name=None):
         # The unit interval is divided into equal partitions and each point
         # is a random offset into a partition.
         resampling_space = tf.linspace(
-            start=ps.cast(0., dtype=weights.dtype),
+            start=tf.broadcast_to(ps.cast(0., dtype=weights.dtype),
+                                  batch_shape),
             stop=1 - interval_width,
             num=resample_num) + offsets
 
         # Resampling
-        cdf_weights = tf.concat([tf.math.cumsum(weights, axis=-1)[..., :-1],
-                                 tf.ones([1, ], dtype=weights.dtype)],
-                                axis=-1)
+        cdf_weights = tf.concat([tf.math.cumsum(weights, axis=0)[:-1],
+                                 tf.broadcast_to(tf.constant(1., dtype=weights.dtype),
+                                 full_prob_shape)],
+                                axis=0)
+        # tf.searchsorted works for innermost dimension, so need to move the dimension first
+        cdf_weights_flatten = tf.reshape(cdf_weights, shape=[ps.size0(cdf_weights), -1])
+        cdf_weights_flatten = dist_util.move_dimension(cdf_weights_flatten, source_idx=0, dest_idx=-1)
+        resampling_space_flatten = tf.reshape(resampling_space, shape=[ps.size0(resampling_space), -1])
+        resampling_space_flatten = dist_util.move_dimension(resampling_space_flatten, source_idx=0, dest_idx=-1)
 
-        resample_index = tf.searchsorted(cdf_weights, resampling_space)
+        def _search_sort(args):
+            return tf.searchsorted(args[0], args[1])
+        resample_index = tf.vectorized_map(_search_sort, [cdf_weights_flatten, resampling_space_flatten])
+        resample_index = dist_util.move_dimension(resample_index, source_idx=0, dest_idx=-1)
 
-        return resample_index
+        return tf.reshape(resample_index, cdf_weights.shape)
 
 
 def _resample_systematic(weights, resample_num, seed=None, name=None):
@@ -212,7 +228,11 @@ def _resample_systematic(weights, resample_num, seed=None, name=None):
         weights = tf.exp(tf.convert_to_tensor(weights, dtype_hint=tf.float32))
 
         if not resample_num:
-            resample_num = ps.shape(weights)[-1]
+            resample_num = ps.shape(weights)[0]
+
+        batch_shape = ps.shape(weights)[1:]
+        full_prob_shape = ps.concat([[1],
+                                     batch_shape], axis=0)
 
         # Draw an offset for whole events, with size [b, ]
         interval_width = ps.cast(1. / resample_num, dtype=weights.dtype)
@@ -222,20 +242,29 @@ def _resample_systematic(weights, resample_num, seed=None, name=None):
         # The unit interval is divided into equal partitions and each point
         # is a random offset into a partition.
         resampling_space = tf.linspace(
-            start=ps.cast(0., dtype=weights.dtype),
+            start=tf.broadcast_to(ps.cast(0., dtype=weights.dtype),
+                              batch_shape),
             stop=1 - interval_width,
             num=resample_num) + offsets
 
         # Resampling
+        cdf_weights = tf.concat([tf.math.cumsum(weights, axis=0)[:-1],
+                                 tf.broadcast_to(tf.constant(1., dtype=weights.dtype),
+                                                 full_prob_shape)],
+                                axis=0)
+        # tf.searchsorted works for innermost dimension, so need to move the dimension first
+        cdf_weights_flatten = tf.reshape(cdf_weights, shape=[ps.size0(cdf_weights), -1])
+        cdf_weights_flatten = dist_util.move_dimension(cdf_weights_flatten, source_idx=0, dest_idx=-1)
+        resampling_space_flatten = tf.reshape(resampling_space, shape=[ps.size0(resampling_space), -1])
+        resampling_space_flatten = dist_util.move_dimension(resampling_space_flatten, source_idx=0, dest_idx=-1)
 
-        cdf_weights = tf.concat([tf.math.cumsum(weights, axis=-1)[..., :-1],
-                                 tf.ones([1, ], dtype=weights.dtype)],
-                                axis=-1)
+        def _search_sort(args):
+            return tf.searchsorted(args[0], args[1])
 
-        # already batch based method
-        resample_index = tf.searchsorted(cdf_weights, resampling_space)
+        resample_index = tf.vectorized_map(_search_sort, [cdf_weights_flatten, resampling_space_flatten])
+        resample_index = dist_util.move_dimension(resample_index, source_idx=0, dest_idx=-1)
 
-        return resample_index
+        return tf.reshape(resample_index, cdf_weights.shape)
 
 
 def _resample_multinomial(weights, resample_num, seed=None, name=None):
@@ -268,15 +297,31 @@ def _resample_multinomial(weights, resample_num, seed=None, name=None):
         weights = tf.exp(tf.convert_to_tensor(weights, dtype_hint=tf.float32))
 
         if not resample_num:
-            resample_num = ps.shape(weights)[-1]
+            resample_num = ps.shape(weights)[0]
+        batch_shape = ps.shape(weights)[1:]
+        points_shape = ps.concat([[resample_num],
+                                  batch_shape], axis=0)
+        full_prob_shape = ps.concat([[1],
+                                     batch_shape], axis=0)
 
         searchpoints = uniform.Uniform(low=ps.cast(0., dtype=weights.dtype),
-                                       high=ps.cast(1., dtype=weights.dtype)).sample(resample_num, seed=seed)
+                                       high=ps.cast(1., dtype=weights.dtype)).sample(points_shape, seed=seed)
 
-        cdf_weights = tf.concat([tf.math.cumsum(weights, axis=-1)[..., :-1],
-                                 tf.ones([1, ], dtype=weights.dtype)],
-                                axis=-1)
+        # Resampling
+        cdf_weights = tf.concat([tf.math.cumsum(weights, axis=0)[:-1],
+                                 tf.broadcast_to(tf.constant(1., dtype=weights.dtype),
+                                                 full_prob_shape)],
+                                axis=0)
+        # tf.searchsorted works for innermost dimension, so need to move the dimension first
+        cdf_weights_flatten = tf.reshape(cdf_weights, shape=[ps.size0(cdf_weights), -1])
+        cdf_weights_flatten = dist_util.move_dimension(cdf_weights_flatten, source_idx=0, dest_idx=-1)
+        resampling_space_flatten = tf.reshape(searchpoints, shape=[ps.size0(searchpoints), -1])
+        resampling_space_flatten = dist_util.move_dimension(resampling_space_flatten, source_idx=0, dest_idx=-1)
 
-        resample_index = tf.searchsorted(cdf_weights, searchpoints)
+        def _search_sort(args):
+            return tf.searchsorted(args[0], args[1])
 
-        return tf.sort(resample_index)
+        resample_index = tf.vectorized_map(_search_sort, [cdf_weights_flatten, resampling_space_flatten])
+        resample_index = dist_util.move_dimension(resample_index, source_idx=0, dest_idx=-1)
+
+        return tf.sort(tf.reshape(resample_index, cdf_weights.shape), axis=0)

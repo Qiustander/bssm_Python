@@ -142,9 +142,9 @@ class TestParticleFilter:
                                                                                0])
 
             return filtered_mean, predicted_mean, \
-                filtered_variance, predicted_variance, particles, parent_indices, likelihood
+                filtered_variance, predicted_variance, particles, log_weights, likelihood
 
-        @tf.function
+        # @tf.function
         def run_pf_filter():
             infer_result = auxiliary_particle_filter(model_obj,
                                                      observations=observations,
@@ -188,6 +188,35 @@ class TestParticleFilter:
             tf.convert_to_tensor(
                 observations)[..., tf.newaxis] *
             tf.ones([num_particles])), atol=1.0)
+
+    @pytest.mark.parametrize(("num_particles", "seed"),
+                             [(num_particles, seed)])
+    def test_proposal_weights_dont_affect_marginal_likelihood(self, num_particles, seed):
+        observation = np.array([-1.3, 0.7]).astype(np.float64)
+        # This particle filter has proposals different from the dynamics,
+        # so internally it will use proposal weights in addition to observation
+        # weights. It should still get the observation likelihood correct.
+        _, lps = infer_rej(
+                tf.convert_to_tensor(observation, dtype=tf.float32),
+                initial_state_prior=normal.Normal(loc=0., scale=1.),
+                transition_fn=lambda _, x: normal.Normal(loc=x, scale=1.),
+                observation_fn=lambda _, x: normal.Normal(loc=x, scale=1.),
+                initial_state_proposal=normal.Normal(loc=0., scale=5.),
+                proposal_fn=lambda _, x: normal.Normal(loc=x, scale=5.),
+                num_particles=2048,
+                seed=seed)
+
+        # Compare marginal likelihood against that
+        # from the true (jointly normal) marginal distribution.
+        y1_marginal_dist = normal.Normal(loc=0., scale=np.sqrt(1. + 1.))
+        y2_conditional_dist = (
+            lambda y1: normal.Normal(loc=y1 / 2., scale=np.sqrt(5. / 2.)))
+        true_lps = tf.stack(
+            [y1_marginal_dist.log_prob(observation[0]),
+             y2_conditional_dist(observation[0]).log_prob(observation[1])],
+            axis=0)
+        # The following line passes at atol = 0.01 if num_particles = 32768.
+        tf.debugging.assert_near(true_lps, lps, atol=0.2)
 
 
 def debug_plot(tfp_result, tfp_result2, true_state):

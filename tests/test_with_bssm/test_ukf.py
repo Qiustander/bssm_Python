@@ -32,12 +32,12 @@ and bssm uses wrong observation noise, the authors use std instead of covariance
 """
 #TODO: re-compile bssm package
 
-
 class TestUnscentedKalmanFilter:
     """
     Test Unscented Kalman Filter - ssm_nlg
     """
 
+    @pytest.mark.skip(reason="need to recompile the bssm ukf")
     def test_kffilter_TFP_arexp(self):
         ro.r("""
         mu <- -0.2
@@ -100,6 +100,7 @@ class TestUnscentedKalmanFilter:
         # compare predicted_covs
         tf.debugging.assert_near(r_result[2][..., 1:], infer_result[3].numpy().transpose(1, 2, 0), atol=1e-0)
 
+    @pytest.mark.skip(reason="need to recompile the bssm ukf")
     def test_kffilter_TFP_sinexp(self):
         ro.r("""
         n <- 150
@@ -138,7 +139,7 @@ class TestUnscentedKalmanFilter:
         # infer_result = model_obj.unscented_Kalman_filter(observation)
         @tf.function
         def run_method():
-            infer_result = unscented_kalman_filter(model_obj, observation)
+            infer_result = unscented_kalman_filter(model_obj, observation, alpha = 1, beta = 0, kappa = 2)
             return infer_result
 
         infer_result = run_method()
@@ -158,6 +159,7 @@ class TestUnscentedKalmanFilter:
         # compare predicted_covs
         tf.debugging.assert_near(r_result[2][..., 1:], infer_result[3].numpy().transpose(1, 2, 0), atol=1e-3)
 
+    @pytest.mark.skip(reason="need to recompile the bssm ukf")
     def test_kffilter_TFP_mvmodel(self):
         ro.r("""
        set.seed(1)
@@ -218,7 +220,12 @@ class TestUnscentedKalmanFilter:
                                               obs_noise_std=np.diag([0.1, 0.1, 0.1]),
                                               dt=0.3,
                                               nonlinear_type="nlg_mv_model")
-        infer_result = model_obj.unscented_Kalman_filter(observation)
+        @tf.function
+        def run_method():
+            infer_result = unscented_kalman_filter(model_obj, observation, alpha = 1, beta = 0, kappa = 2)
+            return infer_result
+
+        infer_result = run_method()
         # true_state = np.array(ro.r("x"))[..., None]
         # plt.plot(infer_result[0][:,0].numpy(), color='blue', linewidth=1)
         # plt.plot(r_result[1][:,0], color='green', linewidth=1)
