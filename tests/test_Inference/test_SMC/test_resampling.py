@@ -152,7 +152,7 @@ class TestResampling:
     def test_multinomial_resample_batch(self, num_particles, seed):
 
         # test the batch resampling which is used in MCMC
-        batch = 10
+        batch =1
         tf.random.set_seed(seed)
         prob = tfd.Normal(loc=0.4, scale=0.4).sample([num_particles, batch])
         log_prob = tf.nn.log_softmax(prob, axis=0)

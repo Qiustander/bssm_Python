@@ -193,26 +193,26 @@ def particle_filter(observations,
       Filtering without Modifying the Forward Pass. _arXiv preprint
       arXiv:2106.10314_, 2021. https://arxiv.org/abs/2106.10314
   """
-
-    resample_fn = _check_resample_fn(resample_fn)
-
-    # if aux not exist then reset it
-    is_apf = False if auxiliary_fn is None else True
-    auxiliary_fn = _dummy_auxiliary_fn if auxiliary_fn is None else auxiliary_fn
-
-    if filter_method == 'bsf' and proposal_fn:
-        raise AssertionError('Bootstrap Filter does not need extra proposal distribution!')
-    if filter_method == 'ekf':
-        transition_fn_grad = kwargs['transition_fn_grad']
-        observation_fn_grad = kwargs['observation_fn_grad']
-    else:
-        transition_fn_grad = None
-        observation_fn_grad = None
-    if is_conditional and not conditional_sample:
-        raise AttributeError("No conditional sample and trajectory is provided!")
-
-    init_seed, loop_seed = samplers.split_seed(seed, salt='particle_filter')
     with tf.name_scope(name or 'particle_filter'):
+
+        resample_fn = _check_resample_fn(resample_fn)
+
+        # if aux not exist then reset it
+        is_apf = False if auxiliary_fn is None else True
+        auxiliary_fn = _dummy_auxiliary_fn if auxiliary_fn is None else auxiliary_fn
+
+        if filter_method == 'bsf' and proposal_fn:
+            raise AssertionError('Bootstrap Filter does not need extra proposal distribution!')
+        if filter_method == 'ekf':
+            transition_fn_grad = kwargs['transition_fn_grad']
+            observation_fn_grad = kwargs['observation_fn_grad']
+        else:
+            transition_fn_grad = None
+            observation_fn_grad = None
+        if is_conditional and conditional_sample is None:
+            raise AttributeError("No conditional sample and trajectory is provided!")
+
+        init_seed, loop_seed = samplers.split_seed(seed, salt='particle_filter')
         num_observation_steps = ps.size0(tf.nest.flatten(observations)[0])
         num_timesteps = (
                 1 + num_transitions_per_observation * (num_observation_steps - 1))
@@ -234,8 +234,6 @@ def particle_filter(observations,
             initial_state_prior=initial_state_prior,
             initial_state_proposal=initial_state_proposal,
             num_particles=num_particles,
-            is_conditional=is_conditional,
-            conditional_sample=conditional_sample,
             auxiliary_fn=auxiliary_fn,
             seed=init_seed)
         propose_and_update_log_weights_fn = (
@@ -308,8 +306,6 @@ def _particle_filter_initial_weighted_particles(observations,
                                                 initial_state_prior,
                                                 initial_state_proposal,
                                                 num_particles,
-                                                is_conditional,
-                                                conditional_sample,
                                                 auxiliary_fn,
                                                 seed=None):
     """Initialize a set of weighted particles including the first observation."""
@@ -328,18 +324,11 @@ def _particle_filter_initial_weighted_particles(observations,
                                                                     transition_fn, observation_fn,
                                                                     transition_fn_grad, observation_fn_grad)
         else:
-            initial_state_dist = initial_state_proposal
+            initial_state_dist = initial_state_proposal(observation)
 
         initial_state = initial_state_dist.sample(num_particles, seed=seed)
         initial_log_weights = (initial_state_prior.log_prob(initial_state) -
                                initial_state_dist.log_prob(initial_state))
-    if is_conditional:
-        # dim: # particles, state_dim
-        update_idx = tf.gather(conditional_sample.conditional_path, indices=0, axis=0)
-        replace_sample = tf.gather(conditional_sample.conditional_sample, indices=0, axis=0)
-        initial_state = tf.tensor_scatter_nd_update(initial_state,
-                                                    indices=[update_idx],
-                                                    updates=[replace_sample])
 
     log_aux_weights = auxiliary_fn(0, initial_state, initial_log_weights, observations)
 
@@ -383,7 +372,7 @@ def _particle_filter_propose_and_update_log_weights_fn(
                                             transition_fn, observation_fn,
                                             transition_fn_grad, observation_fn_grad)
             else:
-                proposal_dist = proposal_fn(step, particles)
+                proposal_dist = proposal_fn(step, particles, observation)
             assertions += _assert_batch_shape_matches_weights(
                 distribution=proposal_dist,
                 weights_shape=ps.shape(log_weights),

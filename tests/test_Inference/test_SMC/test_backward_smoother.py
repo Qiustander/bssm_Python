@@ -8,18 +8,20 @@ from tensorflow_probability.python.internal import prefer_static as ps
 from tensorflow_probability.python.experimental.mcmc.particle_filter import infer_trajectories, particle_filter, \
     reconstruct_trajectories
 from Inference.SMC.forward_filter_backward_smoother import forward_filter_backward_smoother
+from Inference.SMC.forward_filter_backward_sampling import forward_filter_backward_sampling
 import pytest
 import matplotlib.pyplot as plt
 from tensorflow_probability.python.mcmc.internal import util as mcmc_util
 
 tfd = tfp.distributions
 
+
 # TODO: rewrite the backward smoother
 
 class TestTrajectoryReconstruct:
-    num_particles = 50
+    num_particles = 200
     seed = 457
-    num_timesteps = 20
+    num_timesteps = 100
     model_obj = NonlinearSSM.create_model(num_timesteps=num_timesteps,
                                           observation_size=1,
                                           latent_size=1,
@@ -69,7 +71,7 @@ class TestTrajectoryReconstruct:
             return trajectories, filtered_mean, predicted_mean, \
                 filtered_variance, predicted_variance, particles, parent_indices, likelihood, resample_indices
 
-        # @tf.function
+        @tf.function
         def run_ffbs():
             infer_result_smoother = forward_filter_backward_smoother(model_obj,
                                                                      observations,
@@ -78,6 +80,13 @@ class TestTrajectoryReconstruct:
                                                                      resample_fn='systematic',
                                                                      num_particles=num_particles,
                                                                      seed=seed)
+            # infer_result_smoother = forward_filter_backward_sampling(model_obj,
+            #                                                          observations,
+            #                                                          particle_filter_name='bsf',
+            #                                                          resample_ess=0.5,
+            #                                                          resample_fn='stratified',
+            #                                                          num_particles=num_particles,
+            #                                                          is_one_trajectory=False)
 
             return infer_result_smoother
 

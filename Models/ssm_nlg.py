@@ -50,6 +50,7 @@ class NonlinearSSM(object):
                  validate_args=False,
                  allow_nan_stats=True,
                  dtype=tf.float32,
+                 seed=None,
                  name='NonlinearSSM'):
         parameters = dict(locals())
         with tf.name_scope(name or 'NonlinearSSM') as name:
@@ -67,7 +68,7 @@ class NonlinearSSM(object):
             self._transition_dist = transition_dist
             self._transition_fn = transition_fn
             self._observation_fn = observation_fn
-            self.smc_trace_results = []
+            self.seed = seed
 
             dtype_list = [initial_state_prior,
                           observation_dist,
@@ -119,6 +120,7 @@ class NonlinearSSM(object):
     @property
     def initial_state_prior(self):
         return self._initial_state_prior
+
 
     # Function type
 
@@ -180,7 +182,7 @@ class NonlinearSSM(object):
         pass
 
     @tf.function
-    def simulate(self, seed=None):
+    def simulate(self, len_time_step=None, seed=None):
         """
         Simulate true state and observations for filtering and smoothing, and parameter estimation.
         Args:
@@ -188,7 +190,9 @@ class NonlinearSSM(object):
         Returns:
             observations
         """
-        len_time_step = self._num_timesteps
+
+        if len_time_step is None:
+            len_time_step = self._num_timesteps
 
         def _generate_signal(transition_fn, observation_fn):
             def _inner_wrap(gen_data, current_step):
@@ -216,6 +220,18 @@ class NonlinearSSM(object):
         observations = tf.concat([init_obs[tf.newaxis], observations], axis=0)
 
         return true_state, observations
+
+    # @classmethod
+    # def copy_instance(cls, original_instance):
+    #     new_instance = cls.__new__(cls)  # Create a 'blank' instance
+    #     new_instance.__dict__ = original_instance.__dict__.copy()  # Copy attributes
+    #
+    #     # for attr_name, attr_value in original_instance.__dict__.items():
+    #     #     setattr(self, attr_name, attr_value)
+    #     for attr_name, attr_value in original_instance.__class__.__dict__.items():
+    #         if isinstance(attr_value, property):
+    #             setattr(NewClassInstance, attr_name, property(attr_value.fget, attr_value.fset, attr_value.fdel))
+    #
 
     @classmethod
     def create_model(cls,

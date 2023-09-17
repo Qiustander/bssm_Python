@@ -310,10 +310,11 @@ class CovarianceAdaptation(kernel_base.TransitionKernel):
                     1., prefer_static.shape(random_walk_part)[1]*power_part
                 )* tf.abs(accept_prob - previous_kernel_results.target_accept_prob))
 
-                adapted_state = tf.cond(state_part_rank < 2,
-                                         lambda: left_multiply*scale_multiply,
-                                         lambda: tf.einsum('b..., b -> b...', left_multiply, scale_multiply))
+                adapted_state = tf.einsum('b..., b -> b...', left_multiply, scale_multiply)
 
+                # adapted_state = tf.cond(state_part_rank < 2,
+                #                          lambda: left_multiply*scale_multiply,
+                #                          lambda: tf.einsum('b..., b -> b...', left_multiply, scale_multiply))
                 # reduce the last dimension
                 adapted_state = tf.squeeze(adapted_state, axis=-1)
 
@@ -338,10 +339,15 @@ class CovarianceAdaptation(kernel_base.TransitionKernel):
         # does not store results of the matrix
         with tf.name_scope(mcmc_util.make_name(
                 self.name, 'covariance_adaptation', 'bootstrap_results')):
+            # should use inner results as init state (if inner kernel is transformed results)
             inner_results = self.inner_kernel.bootstrap_results(init_state)
             log_accept_prob = self.log_accept_prob_getter_fn(inner_results)
             log_accept_prob_rank = prefer_static.rank(log_accept_prob)
             state_parts = tf.nest.flatten(init_state)
+            # if _is_transformed(inner_results):
+            #     state_parts = tf.nest.flatten(_get_transformed_states(inner_results))
+            # else:
+            #     state_parts = tf.nest.flatten(init_state)
             covariance_parts = []
             # can not use zip
             for state_part in state_parts:
@@ -415,3 +421,9 @@ def _deep_replace(named_tuple, attr_to_replace, new_value):
         return named_tuple._replace(**updated_dict)
 
 
+def _is_transformed(results):
+    return unnest.has_nested(results, "transformed_state")
+
+
+def _get_transformed_states(results):
+    return unnest.get_innermost(results, "transformed_state")

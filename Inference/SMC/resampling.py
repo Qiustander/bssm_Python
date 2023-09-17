@@ -15,7 +15,11 @@ __all__ = [
 ]
 
 
-def resample(particles, log_weights, resample_fn, target_log_weights=None,
+def resample(particles,
+             log_weights,
+             resample_fn,
+             target_log_weights=None,
+             is_conditional=False,
              seed=None):
     """Resamples the current particles according to provided weights.
 
@@ -55,7 +59,15 @@ def resample(particles, log_weights, resample_fn, target_log_weights=None,
 
         # Normalize the weights and sample the ancestral indices.
         log_probs = tf.math.log_softmax(log_weights, axis=0)
-        resampled_indices = resample_fn(log_probs, num_particles, seed=seed)
+        if is_conditional:
+            # only sample N-1 particles
+            resample_indices = resample_fn(log_probs, num_particles - 1, seed=seed)
+            resampled_indices = tf.concat([tf.zeros([1, *ps.shape(resample_indices)[1:]],
+                                                           dtype=resample_indices.dtype),
+                                                  resample_indices],
+                                                 axis=0)
+        else:
+            resampled_indices = resample_fn(log_probs, num_particles, seed=seed)
 
         gather_ancestors = lambda x: (  # pylint: disable=g-long-lambda
             mcmc_util.index_remapping_gather(x, resampled_indices, axis=0))
@@ -197,7 +209,7 @@ def _resample_stratified(weights, resample_num, seed=None, name=None):
         resample_index = tf.vectorized_map(_search_sort, [cdf_weights_flatten, resampling_space_flatten])
         resample_index = dist_util.move_dimension(resample_index, source_idx=0, dest_idx=-1)
 
-        return tf.reshape(resample_index, cdf_weights.shape)
+        return tf.reshape(resample_index, points_shape)
 
 
 def _resample_systematic(weights, resample_num, seed=None, name=None):
@@ -231,6 +243,8 @@ def _resample_systematic(weights, resample_num, seed=None, name=None):
             resample_num = ps.shape(weights)[0]
 
         batch_shape = ps.shape(weights)[1:]
+        points_shape = ps.concat([[resample_num],
+                                  batch_shape], axis=0)
         full_prob_shape = ps.concat([[1],
                                      batch_shape], axis=0)
 
@@ -264,7 +278,7 @@ def _resample_systematic(weights, resample_num, seed=None, name=None):
         resample_index = tf.vectorized_map(_search_sort, [cdf_weights_flatten, resampling_space_flatten])
         resample_index = dist_util.move_dimension(resample_index, source_idx=0, dest_idx=-1)
 
-        return tf.reshape(resample_index, cdf_weights.shape)
+        return tf.reshape(resample_index, points_shape)
 
 
 def _resample_multinomial(weights, resample_num, seed=None, name=None):
@@ -278,7 +292,7 @@ def _resample_multinomial(weights, resample_num, seed=None, name=None):
    Parameters
    ----------
 
-    weights : tf.tensor, not logarithm, with shape [b, N]
+    weights : tf.tensor, logarithm, with shape [b, N]
     resample_num: resampling particles, default is weights.shape[-1]
     seed: PRNG seed; see `tfp.random.sanitize_seed` for details.
     name: tf name scope
@@ -301,17 +315,19 @@ def _resample_multinomial(weights, resample_num, seed=None, name=None):
         batch_shape = ps.shape(weights)[1:]
         points_shape = ps.concat([[resample_num],
                                   batch_shape], axis=0)
+        # concat prob 1
         full_prob_shape = ps.concat([[1],
                                      batch_shape], axis=0)
 
-        searchpoints = uniform.Uniform(low=ps.cast(0., dtype=weights.dtype),
-                                       high=ps.cast(1., dtype=weights.dtype)).sample(points_shape, seed=seed)
+        searchpoints = tf.sort(uniform.Uniform(low=ps.cast(0., dtype=weights.dtype),
+                                       high=ps.cast(1., dtype=weights.dtype)).sample(points_shape, seed=seed), axis=0)
 
         # Resampling
         cdf_weights = tf.concat([tf.math.cumsum(weights, axis=0)[:-1],
                                  tf.broadcast_to(tf.constant(1., dtype=weights.dtype),
                                                  full_prob_shape)],
                                 axis=0)
+
         # tf.searchsorted works for innermost dimension, so need to move the dimension first
         cdf_weights_flatten = tf.reshape(cdf_weights, shape=[ps.size0(cdf_weights), -1])
         cdf_weights_flatten = dist_util.move_dimension(cdf_weights_flatten, source_idx=0, dest_idx=-1)
@@ -324,4 +340,4 @@ def _resample_multinomial(weights, resample_num, seed=None, name=None):
         resample_index = tf.vectorized_map(_search_sort, [cdf_weights_flatten, resampling_space_flatten])
         resample_index = dist_util.move_dimension(resample_index, source_idx=0, dest_idx=-1)
 
-        return tf.sort(tf.reshape(resample_index, cdf_weights.shape), axis=0)
+        return tf.reshape(resample_index, points_shape)

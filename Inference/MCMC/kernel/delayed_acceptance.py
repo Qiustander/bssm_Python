@@ -12,7 +12,10 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 # ============================================================================
-"""Metropolis-Hastings Transition Kernel."""
+"""Delayed Acceptance Transition Kernel."""
+
+# TODO: bugs, two target prob, can not use bijector
+
 
 import collections
 import warnings
@@ -25,6 +28,7 @@ from tensorflow_probability.python.internal import samplers
 from tensorflow_probability.python.mcmc import kernel as kernel_base
 from tensorflow_probability.python.mcmc.internal import util as mcmc_util
 from tensorflow_probability.python.internal import unnest
+from tensorflow_probability.python.internal import prefer_static as ps
 
 __all__ = [
     'DelayedAcceptance',
@@ -61,6 +65,7 @@ class DelayedAcceptance(kernel_base.TransitionKernel):
 
     def __init__(self,
                  exact_target_prob,
+                 approx_target_prob,
                  inner_kernel,
                  name=None):
         """Instantiates this object.
@@ -83,7 +88,12 @@ class DelayedAcceptance(kernel_base.TransitionKernel):
                           'may not be required.')
         self._parameters = dict(exact_target_prob=exact_target_prob,
                                 inner_kernel=inner_kernel,
+                                approx_target_prob=approx_target_prob,
                                 name=name)
+
+    @property
+    def approx_target_prob(self):
+        return self._parameters['approx_target_prob']
 
     @property
     def exact_target_prob(self):
@@ -177,18 +187,14 @@ class DelayedAcceptance(kernel_base.TransitionKernel):
                         dtype=dtype_util.base_dtype(
                             proposed_approx_results.target_log_prob.dtype),
                         seed=acceptance_seed))
-                accepted = log_uniform < log_accept_ratio
+                accepted = log_uniform < accept_ratio
 
                 return accepted, accept_ratio
 
             is_accepted, log_accept_ratio = _compute_accept_ratio(to_sum)
-
-            # if is_accepted is true, then go to second stage, to calculate the exact probability
-            next_state = mcmc_util.choose(
-                is_accepted,
-                proposed_approx_state,
-                current_state,
-                name='choose_next_state')
+            # print(f"first stage {is_accepted}")
+            # print(f"current stage {current_state[-1]}")
+            # print(f"propose stage {proposed_approx_state[-1]}")
 
             kernel_results = DelayedAcceptanceKernelResults(
                 accepted_results=mcmc_util.choose(
@@ -209,37 +215,64 @@ class DelayedAcceptance(kernel_base.TransitionKernel):
                 seed=seed,
             )
 
-            # second stage: no need to propose the new stage, just calculate
-            if is_accepted:
+            # if is_accepted is true, then go to second stage, to calculate the exact probability
+            def _second_stage_compute():
                 exact_propose_target_log_prob = self.exact_target_prob(*proposed_approx_state)
                 exact_current_target_log_prob = self.exact_target_prob(*current_state)
 
                 # TODO: need to backtrace the last accepted?
-                # Compute log(acceptance_ratio).
-                to_sum = [exact_propose_target_log_prob,
-                          -exact_current_target_log_prob,
-                          -proposed_approx_results.target_log_prob,
-                          previous_kernel_results.accepted_results.target_log_prob]
 
-                is_accepted_exact, log_accept_ratio_exact = _compute_accept_ratio(to_sum)
+                to_sum_exact = [exact_propose_target_log_prob,
+                                -exact_current_target_log_prob,
+                                -proposed_approx_results.target_log_prob,
+                                previous_kernel_results.accepted_results.target_log_prob]
 
-                next_state = mcmc_util.choose(
-                    is_accepted_exact,
-                    proposed_approx_state,
-                    current_state,
-                    name='choose_next_state')
+                is_accepted_exact, log_accept_ratio_exact = _compute_accept_ratio(to_sum_exact)
+                # print(f"second stage {is_accepted_exact}")
 
-                target_prob_setter_fn(proposed_approx_results, exact_propose_target_log_prob)
+                # if accepted, then update the log_accept raito to the exact ones.
+                (log_accept_ratio_exact, target_log_prob) = tf.nest.map_structure(
+                    lambda r, p: tf.where(is_accepted_exact, r, p),
+                    (log_accept_ratio_exact, exact_propose_target_log_prob),
+                    (log_accept_ratio, previous_kernel_results.accepted_results.target_log_prob))
 
-                kernel_results = kernel_results._replace(is_accepted=is_accepted_exact,
-                                                         log_accept_ratio=log_accept_ratio_exact,
-                                                         proposed_results=proposed_approx_results,
-                                                         accepted_results=mcmc_util.choose(
-                                                             is_accepted_exact,
-                                                             mcmc_util.strip_seeds(proposed_approx_results),
-                                                             previous_kernel_results.accepted_results,
-                                                             name='choose_inner_results')
-                                                         )
+                is_accepted_exact_parts = tf.nest.flatten(is_accepted_exact)*len(proposed_approx_state)
+                state_exact = [
+                    tf.where(_broadcast_shape(is_accepted_part, accept_part), accept_part, reject_part)
+                    for accept_part, reject_part, is_accepted_part
+                    in zip(proposed_approx_state, current_state, is_accepted_exact_parts)
+                ]
+
+                return state_exact, is_accepted_exact, log_accept_ratio_exact, target_log_prob
+
+            # second stage: no need to propose the new stage
+            # if accepted, then log_accept would be the exact one, otherwise be the approximate one
+            # first accept, second accept = accept, otherwise all reject
+            state_exact, is_accepted_exact, log_accept_ratio_exact, target_log_prob = _second_stage_compute()
+            (is_accepted, log_accept_ratio, target_log_prob) = tf.nest.map_structure(
+                lambda r, p: tf.where(is_accepted, r, p),
+                (is_accepted_exact, log_accept_ratio_exact, target_log_prob),
+                (is_accepted, log_accept_ratio, previous_kernel_results.accepted_results.target_log_prob))
+            is_accepted_parts = tf.nest.flatten(is_accepted) * len(proposed_approx_state)
+            next_state = [
+                tf.where(_broadcast_shape(is_accepted_part, accept_part), accept_part, reject_part)
+                for accept_part, reject_part, is_accepted_part
+                in zip(state_exact, current_state, is_accepted_parts)
+            ]
+
+            target_prob_setter_fn(proposed_approx_results, target_log_prob)
+            # print(f" nextg stage {next_state[-1]}")
+            # print("------------------------------------------------------------------")
+
+            kernel_results = kernel_results._replace(is_accepted=is_accepted,
+                                                     log_accept_ratio=log_accept_ratio,
+                                                     proposed_results=proposed_approx_results,
+                                                     accepted_results=mcmc_util.choose(
+                                                         is_accepted,
+                                                         mcmc_util.strip_seeds(proposed_approx_results),
+                                                         previous_kernel_results.accepted_results,
+                                                         name='choose_inner_results')
+                                                     )
 
             return next_state, kernel_results
 
@@ -295,3 +328,17 @@ def has_target_log_prob(kernel_results):
 def target_prob_setter_fn(kernel_results, new_target_prob):
     """Setter for `new_target_prob`"""
     return unnest.replace_innermost(kernel_results, target_log_prob=new_target_prob)
+
+
+def _broadcast_shape(output, input):
+    """Returns output  with the same shape like `input`."""
+    broadcast_shape = ps.shape(input)
+
+    rank_diff = ps.rank(input) - ps.rank(output)
+
+    for i in range(rank_diff):
+
+        output = output[..., tf.newaxis]
+
+    # Broadcast do_resample to the full shape of particles
+    return tf.broadcast_to(output, broadcast_shape)

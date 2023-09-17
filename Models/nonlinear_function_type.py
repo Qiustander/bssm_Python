@@ -145,8 +145,41 @@ def nonlinear_fucntion(function_type,
             scale=tf.linalg.LinearOperatorFullMatrix(tf.sqrt(prior_cov)) if tf.size(prior_cov) == 1 else
             tf.linalg.LinearOperatorLowerTriangular(tf.linalg.cholesky(prior_cov)))
 
+    elif function_type == "stochastic_volatility_mv":
+
+        rho_matrix = tf.convert_to_tensor(check_state_mtx(kwargs['rho'], state_dim, obs_len),
+                                                 dtype=dtype)
+        mu_vector = tf.convert_to_tensor(check_input_state(kwargs['mu'], state_dim, obs_len),
+                                         dtype=dtype)
+        transition_noise_matrix = tf.convert_to_tensor(
+            check_state_noise(state_noise, state_dim, obs_len), dtype=dtype)
+
+        rho_matrix_fn = _process_mtx_tv(rho_matrix, 2)
+        transition_noise_fn = _process_mtx_tv(transition_noise_matrix, 2)
+
+        observation_fn = lambda t, x: tf.zeros(x.shape, dtype=x.dtype)
+        observation_dist = lambda t, x: tfd.MultivariateNormalTriL(
+            loc=observation_fn(t, x),
+            scale_tril=tf.linalg.diag(tf.exp(x/2))
+        )
+
+        transition_fn = _batch_multiply(rho_matrix_fn)
+        transition_dist = lambda t, x: tfd.MultivariateNormalTriL(
+            loc=mu_vector + transition_fn(t, (x-mu_vector)),
+            scale_tril=transition_noise_fn(t))
+
+        transition_fn_grad = jacobian_fn(transition_fn)
+        observation_fn_grad = jacobian_fn(observation_fn)
+
+        prior_mean = tf.convert_to_tensor(check_prior_mean(mu_vector, state_dim), dtype=dtype)
+        prior_cov = tf.convert_to_tensor(check_prior_cov(prior_cov, state_dim), dtype=dtype)
+        initial_state_prior = tfd.MultivariateNormalTriL(
+            loc=prior_mean,
+            scale_tril=tf.cond(tf.constant(tf.size(prior_cov) == 1, dtype=tf.bool),
+                               lambda: tf.sqrt(prior_cov),
+                               lambda: tf.linalg.cholesky(prior_cov)))
+
     elif function_type == "stochastic_volatility":
-        # TODD: rewrite as multivariate
         rho_state = check_rho(kwargs['rho'])
         mu_state = check_mu(kwargs['mu'])
 
@@ -163,8 +196,8 @@ def nonlinear_fucntion(function_type,
 
         observation_fn = lambda t, x: tf.zeros(x.shape, dtype=x.dtype)
         observation_dist = lambda t, x: tfd.MultivariateNormalTriL(
-            loc=observation_fn(t, x) + tf.convert_to_tensor(input_obs, dtype=dtype),
-            scale_tril=tf.exp(0.5*x)[..., tf.newaxis]
+            loc= tf.zeros(x.shape, dtype=x.dtype) + tf.convert_to_tensor(input_obs, dtype=dtype),
+            scale_tril=tf.linalg.diag(tf.exp(x/2))
         )
 
         transition_fn_grad = jacobian_fn(transition_fn)
@@ -395,27 +428,22 @@ def _batch_multiply(former_mtx):
     def inner_multiply(t, latter_mtx):
 
         if ps.rank(latter_mtx) == 1:
-            latter_mtx_reshape = tf.reshape(latter_mtx, [tf.shape(latter_mtx)[-1], -1])
-            result = tf.matmul(former_mtx(t), latter_mtx_reshape)
-            result = tf.squeeze(result, axis=-1)
+            # latter_mtx_reshape = tf.reshape(latter_mtx, [tf.shape(latter_mtx)[-1], -1])
+            result = tf.linalg.matvec(former_mtx(t), latter_mtx)
+            # result = tf.squeeze(result, axis=-1)
         else:
-            latter_mtx_reshape = latter_mtx
-            if ps.shape(latter_mtx_reshape)[-2] != ps.shape(latter_mtx_reshape)[-1]:
+            # if ps.shape(latter_mtx_reshape)[-2] != ps.shape(latter_mtx_reshape)[-1]:
+            #     # batch
+            #     result = tf.einsum('ij, ...j -> ...i', former_mtx(t), latter_mtx_reshape)
+            # else:
+            #     result = tf.matmul(former_mtx(t), latter_mtx_reshape)
+
+            if ps.rank(former_mtx(t)) > 2:
                 # batch
-                result = tf.einsum('ij, ...j -> ...i', former_mtx(t), latter_mtx_reshape)
+                result = tf.einsum('...ij, ...j -> ...i', former_mtx(t), latter_mtx)
             else:
-                result = tf.matmul(former_mtx(t), latter_mtx_reshape)
+                result = tf.matmul(former_mtx(t), latter_mtx)
 
         return result
-        # # Ensure that latter_mtx is 2D even if it was 1D
-        # latter_mtx_2d = tf.reshape(latter_mtx, [-1, tf.shape(latter_mtx)[-1]])
-        #
-        # # Perform the multiplication
-        # result = tf.matmul(former_mtx(t), latter_mtx_2d, transpose_b=True)
-        #
-        # if ps.rank(latter_mtx) == 1:
-        #     return tf.squeeze(result, axis=-1)
-        # else:
-        #     return tf.transpose(result)
 
     return inner_multiply

@@ -27,40 +27,42 @@ def posterior_mean_var(particles, log_weights, num_time_step):
         predicted_mean:
         predicted_variance:
     """
+    with tf.name_scope('posterior_mean_variance'):
 
-    # check the output particle filter is whether dict
+        # check the output particle filter is whether dict
 
-    def _posteror_processing(input_particles):
+        def _posteror_processing(input_particles):
 
-        input_particles = tf.cond((ps.rank(input_particles) - ps.rank(log_weights))==0,
-                                  lambda : input_particles[..., tf.newaxis],
-                                  lambda : input_particles)
+            # particles must have one more rank than weights
+            rank_diff = ps.rank(input_particles) - ps.rank(log_weights)
+            if rank_diff == 0:
+                input_particles = input_particles[..., tf.newaxis]
 
-        weights = tf.nn.softmax(log_weights)[..., tf.newaxis]
-        filtered_mean = tf.reduce_sum(weights * input_particles, axis=1)
-        predicted_mean = tf.reduce_mean(input_particles, axis=1)
+            weights = tf.nn.softmax(log_weights)[..., tf.newaxis]
+            filtered_mean = tf.reduce_sum(weights * input_particles, axis=1)
+            predicted_mean = tf.reduce_mean(input_particles, axis=1)
 
-        predicted_variance = tf.einsum("...ij,...ik->...jk",
-                                       input_particles - tf.expand_dims(predicted_mean, axis=1),
-                                       input_particles - tf.expand_dims(predicted_mean, axis=1))
-        predicted_variance /= num_time_step
-        filtered_variance = tf.einsum("...ij,...ik->...jk",
-                                      weights * (input_particles - tf.expand_dims(filtered_mean, axis=1)),
-                                      input_particles - tf.expand_dims(filtered_mean, axis=1))
+            predicted_variance = tf.einsum("...ij,...ik->...jk",
+                                           input_particles - tf.expand_dims(predicted_mean, axis=1),
+                                           input_particles - tf.expand_dims(predicted_mean, axis=1))
+            predicted_variance /= num_time_step
+            filtered_variance = tf.einsum("...ij,...ik->...jk",
+                                          weights * (input_particles - tf.expand_dims(filtered_mean, axis=1)),
+                                          input_particles - tf.expand_dims(filtered_mean, axis=1))
+            return (filtered_mean, predicted_mean,
+                filtered_variance, predicted_variance)
+
+        if isinstance(particles, dict):
+            filtered_mean = predicted_mean = filtered_variance = predicted_variance = {}
+            for key, tensor in particles.items():
+                filtered_mean[key], predicted_mean[key],\
+                 filtered_variance[key], predicted_variance[key] = _posteror_processing(tensor)
+        else:
+            (filtered_mean, predicted_mean,
+             filtered_variance, predicted_variance) = _posteror_processing(particles)
+
         return (filtered_mean, predicted_mean,
-            filtered_variance, predicted_variance)
-
-    if isinstance(particles, dict):
-        filtered_mean = predicted_mean = filtered_variance = predicted_variance = {}
-        for key, tensor in particles.items():
-            filtered_mean[key], predicted_mean[key],\
-             filtered_variance[key], predicted_variance[key] = _posteror_processing(tensor)
-    else:
-        (filtered_mean, predicted_mean,
-         filtered_variance, predicted_variance) = _posteror_processing(particles)
-
-    return (filtered_mean, predicted_mean,
-            filtered_variance, predicted_variance)
+                filtered_variance, predicted_variance)
 
 
 def extended_kalman_particle_initial(initial_prior_fn, observation,

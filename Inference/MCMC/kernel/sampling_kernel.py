@@ -107,8 +107,16 @@ class SamplingKernel(mcmc.TransitionKernel):
 
             # User should be using a new_state_fn that does not alter the state size.
             # This will fail noisily if that is not the case.
-            for next_part, current_part in zip(next_state_parts, self.current_full_states):
-                tensorshape_util.set_shape(next_part, current_part.shape)
+
+            def _set_shape_nested(A, B):
+                if isinstance(A, list) and isinstance(B, list):
+                    return [_set_shape_nested(a, b) for a, b in zip(A, B)]
+                else:
+                   return tf.reshape(A, tf.shape(B))
+            next_state_parts = _set_shape_nested(next_state_parts, self.current_full_states)
+
+            # for next_part, current_part in zip(next_state_parts, self.current_full_states):
+            #     tensorshape_util.set_shape(next_part, current_part.shape)
 
             # Compute `target_log_prob` so its available to MetropolisHastings.
             next_target_log_prob = self.target_log_prob_fn(next_state_parts[self.sampling_idx])  # pylint: disable=not-callable
@@ -171,3 +179,4 @@ def cond_sample_fn(inner_sample_dist):
         return state_parts
 
     return _fn
+

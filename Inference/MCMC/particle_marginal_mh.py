@@ -1,5 +1,5 @@
 import tensorflow as tf
-from tensorflow_probability.python.mcmc import sample_chain, TransformedTransitionKernel
+from tensorflow_probability.python.mcmc import sample_chain, TransformedTransitionKernel, SimpleStepSizeAdaptation
 # from tensorflow_probability.python.mcmc.random_walk_metropolis import random_walk_normal_fn, RandomWalkMetropolis
 from tensorflow_probability.python.mcmc import HamiltonianMonteCarlo
 from Inference.MCMC.kernel.random_walk_metropolis import RandomWalkMetropolis
@@ -14,13 +14,11 @@ import tensorflow_probability as tfp
 """
 
 return_results = namedtuple(
-    'PMMHResult', ['states', 'trace_results', 'smc_trace_results'])
+    'PMMHResult', ['states', 'trace_results'])
 
 
-def particle_marginal_metropolis_hastings(ssm_model,
-                                          observations,
+def particle_marginal_metropolis_hastings(
                                           num_samples,
-                                          num_particles,
                                           num_burnin_steps,
                                           init_state,
                                           target_dist,
@@ -51,11 +49,17 @@ def particle_marginal_metropolis_hastings(ssm_model,
         if init_state is None:
             raise NotImplementedError("Must initialize the theta!")
 
-        mcmc_kernel = RandomWalkMetropolis(target_dist(observations, num_particles),
-                                         random_walk_cov=0.1)
-        # mcmc_kernel = HamiltonianMonteCarlo(target_dist(observations, num_particles),
+        mcmc_kernel = RandomWalkMetropolis(target_dist,
+                                         random_walk_cov=0.06)
+        # mcmc_kernel = HamiltonianMonteCarlo(target_dist,
         #                                     step_size=0.01,
-        #                                     num_leapfrog_steps=3)
+        #                                     num_leapfrog_steps=2)
+
+        adapted_kernel = CovarianceAdaptation(
+            inner_kernel=mcmc_kernel,
+            num_adaptation_steps=int(0.8* num_burnin_steps),
+            target_accept_prob=0.234,
+            adaptation_rate=2 / 3)
 
         if transformed_bijector is None:
             transform_kernel = mcmc_kernel
@@ -64,11 +68,6 @@ def particle_marginal_metropolis_hastings(ssm_model,
                 inner_kernel=mcmc_kernel,
                 bijector=transformed_bijector)
 
-        adapted_kernel = CovarianceAdaptation(
-            inner_kernel=transform_kernel,
-            num_adaptation_steps=int(0.8* num_burnin_steps),
-            target_accept_prob=0.234,
-            adaptation_rate=2 / 3)
 
         # adapted_kernel = tfp.mcmc.SimpleStepSizeAdaptation(
         #     inner_kernel=transform_kernel,
@@ -79,8 +78,7 @@ def particle_marginal_metropolis_hastings(ssm_model,
                                                current_state=init_state,
                                                num_burnin_steps=num_burnin_steps,
                                                num_steps_between_results=num_steps_between_results,
-                                               kernel=adapted_kernel,
+                                               kernel=transform_kernel,
                                                seed=seed)
 
-        return return_results(states=states, trace_results=kernels_results,
-                              smc_trace_results=ssm_model.smc_trace_results)
+        return return_results(states=states, trace_results=kernels_results)

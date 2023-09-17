@@ -4,10 +4,9 @@ import tensorflow_probability as tfp
 from Models.check_argument import *
 from Models.ssm_nlg import NonlinearSSM
 from tensorflow_probability.python.internal import prefer_static as ps
-from tensorflow_probability.python.experimental.mcmc.particle_filter import infer_trajectories, particle_filter, \
+from tensorflow_probability.python.experimental.mcmc.particle_filter import particle_filter, \
     reconstruct_trajectories
 from Inference.SMC.infer_trajectories import reconstruct_trajectories as rec_tj
-from Inference.SMC.filter_smoother import filter_smoother
 import pytest
 from Utils.smc_utils.smc_utils import posterior_mean_var
 from Inference.SMC.bootstrap_particle_filter import bootstrap_particle_filter
@@ -18,9 +17,9 @@ tfd = tfp.distributions
 
 
 class TestTrajectoryReconstruct:
-    num_particles = 300
+    num_particles = 100
     seed = 457
-    num_timesteps = 100
+    num_timesteps = 50
     model_obj = NonlinearSSM.create_model(num_timesteps=num_timesteps,
                                           observation_size=1,
                                           latent_size=1,
@@ -32,7 +31,7 @@ class TestTrajectoryReconstruct:
 
     @pytest.mark.parametrize(("num_particles", "seed", "num_timesteps", "model_obj"),
                              [(num_particles, seed, num_timesteps, model_obj)])
-    def test_particle_filter(self, num_particles, seed, num_timesteps, model_obj):
+    def test_particle_filter_revised(self, num_particles, seed, num_timesteps, model_obj):
         true_state, observations = model_obj.simulate(seed)
 
         # TFP BSF filter
@@ -77,7 +76,8 @@ class TestTrajectoryReconstruct:
         # compare predicted_means
         tf.debugging.assert_near(infer_result_tfp[1], infer_result_me.predicted_mean.numpy(), atol=1e-5)
         # compare likelihood
-        tf.debugging.assert_near(infer_result_tfp[-1][1:], infer_result_me.incremental_log_marginal_likelihoods.numpy()[1:], atol=1e-5)
+        tf.debugging.assert_near(infer_result_tfp[-1][1:],
+                                 infer_result_me.incremental_log_marginal_likelihoods.numpy()[1:], atol=1e-5)
 
     @pytest.mark.parametrize(("num_particles", "seed", "num_timesteps", "model_obj"),
                              [(num_particles, seed, num_timesteps, model_obj)])

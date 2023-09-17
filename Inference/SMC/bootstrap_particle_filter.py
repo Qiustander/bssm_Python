@@ -24,6 +24,8 @@ def bootstrap_particle_filter(ssm_model,
                               resample_fn='stratified',
                               resample_ess=0.5,
                               unbiased_gradients=True,
+                              conditional_sample=None,
+                              is_conditional=False,
                               num_transitions_per_observation=1,
                               trace_fn=default_trace_fn,
                               seed=None,
@@ -70,11 +72,12 @@ def bootstrap_particle_filter(ssm_model,
             unbiased_gradients=unbiased_gradients,
             num_transitions_per_observation=num_transitions_per_observation,
             trace_fn=trace_fn,
+            conditional_sample=conditional_sample,
+            is_conditional=is_conditional,
             trace_criterion_fn=lambda *_: True,
             seed=seed,
             name=name)
 
-        # state_dim = ssm_model.initial_state_prior.sample().shape[0]
         filtered_mean, predicted_mean, \
             filtered_variance, predicted_variance = posterior_mean_var(particles,
                                                                        log_weights,

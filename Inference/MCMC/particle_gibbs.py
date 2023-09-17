@@ -1,7 +1,7 @@
 import tensorflow as tf
 from tensorflow_probability.python.mcmc import sample_chain
-from tensorflow_probability.python.mcmc.random_walk_metropolis import RandomWalkMetropolis, random_walk_normal_fn
 from collections import namedtuple
+from tensorflow_probability.python.internal import samplers
 
 """
 Particle Gibbs Sampling Algorithm 
@@ -11,7 +11,7 @@ return_results = namedtuple(
     'ParticleGibbsResult', ['states', 'trace_results'])
 
 
-def particle_gibbs_sampling(ssm_model,
+def particle_gibbs_sampling(gibbs_kernel,
                             num_results,
                             num_burnin_steps,
                             num_steps_between_results=0,
@@ -33,21 +33,19 @@ def particle_gibbs_sampling(ssm_model,
 
     """
 
-    with tf.name_scope(name or 'particle_gibbs') as name:
+    with tf.name_scope(name or 'particle_gibbs'):
 
-        if not ssm_model.target_dist:
-            raise NotImplementedError("No target distribution exists!")
-        if not init_state:
-            init_state = tf.zeros_like(ssm_model.target_dist.sample())
+        if seed is None:
+            seed = samplers.sanitize_seed(seed, name='particle_metropolis_hastings')
 
-        mh_kernel = RandomWalkMetropolis(ssm_model.target_dist,
-                                         new_state_fn=random_walk_normal_fn(scale=0.5))
+        if init_state is None:
+            raise NotImplementedError("Must initialize the theta!")
 
         states, kernels_results = sample_chain(num_results=num_results,
                                                current_state=init_state,
                                                num_burnin_steps=num_burnin_steps,
                                                num_steps_between_results=num_steps_between_results,
-                                               kernel=mh_kernel,
+                                               kernel=gibbs_kernel,
                                                seed=seed)
 
         return return_results(states=states, trace_results=kernels_results)

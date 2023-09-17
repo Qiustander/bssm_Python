@@ -19,11 +19,13 @@ return_results = namedtuple(
 def auxiliary_particle_filter(ssm_model,
                               observations,
                               num_particles,
-                              is_gudied=False,
+                              is_guided=False,
                               initial_state_proposal=None,
                               resample_fn='stratified',
                               resample_ess=0.5,
                               unbiased_gradients=True,
+                              conditional_sample=None,
+                              is_conditional=False,
                               num_transitions_per_observation=1,
                               trace_fn=default_trace_fn,
                               seed=None,
@@ -51,7 +53,7 @@ def auxiliary_particle_filter(ssm_model,
         if seed is None:
             seed = samplers.sanitize_seed(seed, name='auxiliary_particle_filter')
 
-        if ssm_model.auxiliary_fn() is None and not is_gudied:
+        if ssm_model.auxiliary_fn() is None and not is_guided:
             raise NotImplementedError('No Auxiliary Function!')
 
         (particles,  # num_time_step, particle_num, state_dim
@@ -61,7 +63,7 @@ def auxiliary_particle_filter(ssm_model,
          accumulated_log_marginal_likelihood) = particle_filter(
             observations=observations,
             initial_state_prior=ssm_model.initial_state_prior,
-            auxiliary_fn=ssm_model.auxiliary_fn if not is_gudied else None,
+            auxiliary_fn=ssm_model.auxiliary_fn if not is_guided else None,
             transition_fn=ssm_model.transition_dist,
             observation_fn=ssm_model.observation_dist,
             num_particles=num_particles,
@@ -70,6 +72,8 @@ def auxiliary_particle_filter(ssm_model,
             resample_fn=resample_fn,
             resample_ess_num=resample_ess,
             unbiased_gradients=unbiased_gradients,
+            conditional_sample=conditional_sample,
+            is_conditional=is_conditional,
             num_transitions_per_observation=num_transitions_per_observation,
             trace_fn=trace_fn,
             trace_criterion_fn=lambda *_: True,

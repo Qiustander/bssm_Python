@@ -121,7 +121,7 @@ def _broadcast_resample(resample, particles):
     """Returns do_resample  with the same shape like `particles`."""
     broadcast_shape = ps.shape(particles)
 
-    rank_diff = ps.rank(particles) - ps.rank(resample) # 2 or 1
+    rank_diff = ps.rank(particles) - ps.rank(resample)  # 2 or 1
 
     resample = resample[..., tf.newaxis] if rank_diff == 2 else resample
 
@@ -261,6 +261,7 @@ class SequentialMonteCarlo(kernel_base.TransitionKernel):
         """Takes one Sequential Monte Carlo inference step.
 
     Args:
+        is_apf:
       state: instance of `tfp.experimental.mcmc.WeightedParticles` representing
         the current particles with (log) weights. The `log_weights` must be
         a float `Tensor` of shape `[num_particles, b1, ..., bN]`. The
@@ -281,7 +282,6 @@ class SequentialMonteCarlo(kernel_base.TransitionKernel):
     """
         with tf.name_scope(self.name):
             with tf.name_scope('one_step'):
-
                 state = WeightedParticles(*state)  # Canonicalize.
 
                 seed = samplers.sanitize_seed(seed)
@@ -301,10 +301,18 @@ class SequentialMonteCarlo(kernel_base.TransitionKernel):
                 state = tf.nest.map_structure(
                     lambda a, b: tf.where(is_initial_step, a, b), state, proposed_state)
 
+                if self.is_conditional:
+                    # dim: # particles, state_dim
+                    replace_sample = tf.gather(self.conditional_sample, indices=kernel_results.steps,
+                                               axis=0)
+                    state = state._replace(particles=tf.tensor_scatter_nd_update(state.particles,
+                                                                                 indices=tf.constant([[0]]),
+                                                                                 updates=[replace_sample]))
+
                 incremental_log_marginal_likelihood = tf.nest.map_structure(
                     lambda a, b: tf.where(is_initial_step, a, b), tfp.math.reduce_logmeanexp(state.log_weights, axis=0),
                     tfp.math.reduce_logmeanexp(state.log_weights, axis=0) - \
-                                                               tfp.math.reduce_logmeanexp(last_weights, axis=0))
+                    tfp.math.reduce_logmeanexp(last_weights, axis=0))
 
                 # do resampling first for x_{t-1} -> w_{t-1}
                 do_resample = self.resample_criterion_fn(state)
@@ -329,6 +337,7 @@ class SequentialMonteCarlo(kernel_base.TransitionKernel):
                     # Scibior, Masrani, and Wood (2021).
                     log_weights=tf.stop_gradient(state.log_weights),
                     resample_fn=self.resample_fn,
+                    is_conditional=self.is_conditional,
                     target_log_weights=(state.log_weights
                                         if self.unbiased_gradients else None),
                     seed=resample_seed)
@@ -347,31 +356,26 @@ class SequentialMonteCarlo(kernel_base.TransitionKernel):
                 gather_ancestors = lambda x: (  # pylint: disable=g-long-lambda
                     mcmc_util.index_remapping_gather(x, resample_indices, axis=0))
                 adjust_apf_weights = tf.cond(tf.constant(is_apf, dtype=tf.bool),
-                                             lambda: tf.nest.map_structure(gather_ancestors, tf.nn.log_softmax(log_weights, axis=0) -
-                                                                                    tf.nn.log_softmax(state.log_weights, axis=0)),
+                                             lambda: tf.nest.map_structure(gather_ancestors,
+                                                                           tf.nn.log_softmax(log_weights, axis=0) -
+                                                                           tf.nn.log_softmax(state.log_weights,
+                                                                                             axis=0)),
                                              lambda: log_weights)
 
                 # unnormalized
                 last_adjust_aux_weights = tf.nest.map_structure(
-                                                        lambda r, p: tf.where(do_resample, r, p),
-                                                        adjust_apf_weights,
-                                                        log_weights)
+                    lambda r, p: tf.where(do_resample, r, p),
+                    adjust_apf_weights,
+                    log_weights)
 
                 tensorshape_util.set_shape(last_adjust_aux_weights, state.log_weights.shape)
 
-                if self.is_conditional:
-                    # dim: # particles, state_dim
-                    update_idx = tf.gather(self.conditional_sample.conditional_path, indices=kernel_results.steps,
-                                           axis=0)
-                    replace_sample = tf.gather(self.conditional_sample.conditional_sample, indices=kernel_results.steps,
-                                               axis=0)
-                    state = tf.tensor_scatter_nd_update(state,
-                                                        indices=[update_idx],
-                                                        updates=[replace_sample])
-                    # update the ancestor
-                    resample_indices = tf.tensor_scatter_nd_update(resample_indices,
-                                                                   indices=[update_idx],
-                                                                   updates=[update_idx])
+                # if self.is_conditional:
+                #     # update the ancestor
+                #     resample_indices = tf.concat([tf.zeros([1, *ps.shape(resample_indices)[1:]],
+                #                                            dtype=resample_indices.dtype),
+                #                                   resample_indices[1:]],
+                #                                  axis=0)
 
             return (WeightedParticles(particles=resampled_particles,
                                       log_weights=last_adjust_aux_weights),
