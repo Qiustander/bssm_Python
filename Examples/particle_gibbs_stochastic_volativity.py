@@ -2,6 +2,7 @@ from Synthetic_Data.stochastic_volatility import gen_ssm
 import matplotlib.pyplot as plt
 from Inference.MCMC.particle_gibbs import particle_gibbs_sampling
 from Inference.SMC.infer_trajectories import infer_trajectories
+from Inference.SMC.bootstrap_particle_filter import bootstrap_particle_filter
 from Inference.MCMC.kernel.gibbs_kernel import GibbsKernel
 from Inference.MCMC.kernel.sampling_kernel import SamplingKernel, cond_sample_fn
 from Inference.SMC.forward_filter_backward_sampling import forward_filter_backward_sampling
@@ -45,21 +46,19 @@ ssm_model = gen_ssm(num_timesteps=num_timesteps,
                     rho=true_rho,
                     state_mtx_noise=true_sigma)
 
-true_state, observations = ssm_model.simulate(len_time_step=4*num_timesteps)
+true_state, observations = ssm_model.simulate(len_time_step=4 * num_timesteps)
 true_state = true_state[-num_timesteps:]
 observations = observations[-num_timesteps:]
-
 
 # prior specification
 PRIOR_MEAN_MU = tf.constant([0.])
 PRIOR_STD_MU = tf.constant([[2.0]])
-PRIOR_INV_GAMMA_ALPHA = tf.constant([3.])
+PRIOR_INV_GAMMA_ALPHA = tf.constant([1.])
 PRIOR_INV_GAMMA_BETA = tf.constant([1.])
 N_CHAINS = 10
 replicate_observations = tf.tile(tf.expand_dims(observations, axis=1), multiples=[1, N_CHAINS, 1])
 
 # @title Analytical Posterior Mean
-
 true_mean = true_mu
 true_std = true_sigma / tf.sqrt(1 - true_rho ** 2)
 sample_std = tf.math.reduce_std(true_state)
@@ -69,15 +68,13 @@ print(f'true state std: {true_std}')
 print(f'sample state mean: {tf.reduce_mean(true_state)}')
 print(f'sample state std: {tf.math.reduce_std(true_state)}')
 
-coeff_mu = 1/(1/PRIOR_STD_MU**2 + (observations.shape[0]+1)*(1-true_rho)**2/true_sigma**2)
-# coeff_mu = true_sigma ** 2 / ((1 - true_rho ** 2) + (observations.shape[0] + 1) * (1 - true_rho) ** 2)
+# coeff_mu = 1/(1/PRIOR_STD_MU**2 + (observations.shape[0]+1)*(1-true_rho)**2/true_sigma**2)
+coeff_mu = true_sigma ** 2 / ((1 - true_rho ** 2) + (observations.shape[0] + 1) * (1 - true_rho) ** 2)
 sum_xt = tf.reduce_sum((true_state[:-1] - true_mu) * (true_state[1:] - true_mu), axis=0)
 sum_xt2 = tf.reduce_sum((true_state[:-1] - true_mu) ** 2, axis=0)
 reduce_sum = tf.reduce_sum(true_state[1:] - true_rho * true_state[:-1], axis=0)
-# true_posterior_mean_mu = coeff_mu * (
-#             reduce_sum * (1 - true_rho) / true_sigma ** 2 + (1 - true_rho ** 2) / true_sigma ** 2 * true_state[0])
 true_posterior_mean_mu = coeff_mu * (
-            reduce_sum * (1 - true_rho) / true_sigma ** 2 + PRIOR_MEAN_MU/PRIOR_STD_MU**2)
+        reduce_sum * (1 - true_rho) / true_sigma ** 2 + (1 - true_rho ** 2) / true_sigma ** 2 * true_state[0])
 print(f"posterior mu: {true_posterior_mean_mu}")
 true_posterior_mean_rho = sum_xt / sum_xt2
 print(f"posterior rho: {true_posterior_mean_rho}")
@@ -88,6 +85,7 @@ poster_dist = tfd.InverseGamma(concentration=posterior_alpha,
                                scale=posterior_beta)
 true_posterior_sigma_mean = tf.sqrt(poster_dist.mean())
 print(f"posterior noise std: {true_posterior_sigma_mean}")
+
 
 class NewClassInstance:
 
@@ -165,6 +163,7 @@ class StochasticVolativitySSM(NewClassInstance):
 
         return new_class
 
+
 sv_ssm = StochasticVolativitySSM(ssm_model)
 
 
@@ -175,7 +174,7 @@ def _run_smc(ssmmodel, conditional_trajectory, is_conditional):
                                               resample_ess=0.5,
                                               is_conditional=is_conditional,
                                               conditional_sample=conditional_trajectory,
-                                              resample_fn='multinomial',
+                                              resample_fn='systematic',
                                               num_particles=num_particles, is_one_trajectory=True)
     return result.trajectories
 
@@ -188,6 +187,7 @@ def log_theta_prior():
         rho=tfd.Uniform(low=-1., high=1.))
     )
 
+
 # from Inference.MCMC.prior_predictive_check import prior_predictive_check
 # prior_predictive_check(ssm_model=sv_ssm, observations=true_state, sample_sizes=300,
 #                        prior_dist=log_theta_prior)
@@ -199,17 +199,20 @@ def initial_theta():
     """
 
     def _get_initial_trajectory():
-        prior_samples = log_theta_prior().sample(N_CHAINS)
+        prior_samples = {'sigma': tf.random.uniform([N_CHAINS, 1]) + 0.2,
+                         'mu': tf.random.normal([N_CHAINS, 1]),
+                         'rho': tf.random.uniform([N_CHAINS, 1]) - 0.2}
         new_svm_model = sv_ssm.update_model(sigma=prior_samples['sigma'],
                                             mu=prior_samples['mu'],
-                                            rho=prior_samples['rho'][..., tf.newaxis])
+                                            rho=prior_samples['rho'])
 
-        return _run_smc(new_svm_model, is_conditional=False, conditional_trajectory=None)
+        return _run_smc(new_svm_model, is_conditional=True,
+                        conditional_trajectory=tf.random.normal([num_timesteps, N_CHAINS, 1]))
 
-    return [[tf.random.uniform([N_CHAINS, 1]) + 0.2,  # sigma
-             tf.random.normal([N_CHAINS, 1]),  # mu
-             tf.random.uniform([N_CHAINS, 1]) - 0.2  # rho
-             ],
+    return [tf.concat([tf.random.uniform([N_CHAINS, 1]) + 0.2,
+                        tf.random.normal([N_CHAINS, 1]),
+                        tf.random.uniform([N_CHAINS, 1]) - 0.2], axis=-1)
+             ,
             _get_initial_trajectory()
             ]
 
@@ -220,45 +223,48 @@ def parameters_sample_fn(sampling_idx, current_state, rest_state_parts, seed=Non
 
     # current parameters
     parameters = current_state
-    sigma = parameters[0]
-    mu = parameters[1]
-    rho = parameters[2]
+    sigma = parameters[..., 0:1]
+    mu = parameters[..., 1:2]
+    rho = parameters[..., 2:3]
 
     # time_step, chain, state_dim
     reference_states = rest_state_parts[0]
     reference_states_shift = tf.concat([mu[tf.newaxis], reference_states[:-1, ...]], axis=0)
 
     # Update mu - Normal
-    coeff_mu_inner = 1 / (1 / PRIOR_STD_MU ** 2 + replicate_observations.shape[0] * (1 - rho) ** 2 / sigma ** 2)
-
-    reduce_sum_mu = tf.reduce_sum(reference_states[1:] - rho * reference_states[:-1], axis=0)
-    posterior_mean_mu = coeff_mu_inner * (reduce_sum_mu * (1. - rho) / sigma ** 2 + PRIOR_MEAN_MU / PRIOR_STD_MU ** 2)
-    posterior_std_mu = tf.sqrt(coeff_mu_inner)
+    coeff_delta = 1 / (1 / PRIOR_STD_MU ** 2 + (replicate_observations.shape[0] - 1) * (1 - rho) ** 2 / sigma ** 2)
+    reduce_sum = tf.reduce_sum(reference_states[1:, ...] - rho * reference_states[:-1, ...], axis=0)
+    posterior_mean_mu = coeff_delta * (reduce_sum * (1. - rho) / sigma ** 2 + PRIOR_MEAN_MU / PRIOR_STD_MU ** 2)
+    posterior_std_mu = tf.sqrt(coeff_delta)
     posterior_mu = tfd.MultivariateNormalTriL(loc=posterior_mean_mu,
                                               scale_tril=posterior_std_mu[..., tf.newaxis]).sample(seed=seed)
 
     # Update rho - truncated normal
 
-    sum_xt2 = tf.reduce_sum((reference_states[:-1] - posterior_mu) ** 2, axis=0)
-    sum_xt = tf.reduce_sum((reference_states[1:] - posterior_mu) * (reference_states[:-1] - posterior_mu), axis=0)
-    posterior_mean_rho = sum_xt / sum_xt2
-    # posterior_mean_rho = posterior_mean_rho*tf.greater_equal(posterior_mean_rho, -1.0) * tf.less_equal(posterior_mean_rho, 1.0)
-    posterior_std_rho = sigma / tf.sqrt(sum_xt2)
-    posterior_rho = tfd.TruncatedNormal(loc=posterior_mean_rho,
-                                        scale=posterior_std_rho,
+    sum_xt2 = tf.reduce_sum((reference_states[:-1, ...] - posterior_mu) ** 2, axis=0)
+    sum_xt = tf.reduce_sum((reference_states[:-1, ...] - posterior_mu) * (reference_states[1:, ...] - posterior_mu),
+                           axis=0)
+    posterior_mean = sum_xt / sum_xt2
+    posterior_std = tf.sqrt(2.)*sigma / tf.sqrt(sum_xt2)
+    posterior_rho = tfd.TruncatedNormal(loc=posterior_mean,
+                                        scale=posterior_std,
                                         low=-0.99,
                                         high=1.0).sample(seed=seed)
 
     # Update sigma - sqrt of Inverse Gamma (std)
     posterior_alpha = PRIOR_INV_GAMMA_ALPHA + (replicate_observations.shape[0] - 1) / 2
     posterior_beta = PRIOR_INV_GAMMA_BETA + \
-                     tf.reduce_sum((reference_states[1:] - posterior_mu - posterior_rho * (
-                                 reference_states[:-1] - posterior_mu)) ** 2, axis=0) / 2
+                     tf.reduce_sum(
+                         (reference_states[1:, ...] - posterior_mu - posterior_rho * (
+                                     reference_states[:-1, ...] - posterior_mu)) ** 2,
+                         axis=0) / 2
     gamma_dist = tfd.InverseGamma(concentration=posterior_alpha,
                                   scale=posterior_beta)
     posterior_sigma = tf.sqrt(gamma_dist.sample(seed=seed))
 
-    return [posterior_sigma, posterior_mu, posterior_rho]
+    return tf.concat([posterior_sigma,
+                      posterior_mu,
+                      posterior_rho], axis=-1)
 
 
 def states_sample_fn(sampling_idx, current_state, rest_state_parts, seed=None):
@@ -267,15 +273,13 @@ def states_sample_fn(sampling_idx, current_state, rest_state_parts, seed=None):
     current_reference_trajectory = current_state
 
     parameters = rest_state_parts[0]
-    sigma = parameters[0]
-    mu = parameters[1]
-    rho = parameters[2]
+    sigma = parameters[..., 0:1]
+    mu = parameters[..., 1:2]
+    rho = parameters[..., 2:3]
 
     new_svm_model = sv_ssm.update_model(sigma=sigma, mu=mu, rho=rho)
 
     traced_results = _run_smc(new_svm_model, current_reference_trajectory, is_conditional=True)
-    # traced_results = tf.tile(tf.expand_dims(true_state, axis=1), multiples=[1, N_CHAINS, 1])
-    # traced_results = traced_results + 0.1*tf.random.uniform(traced_results.shape)
 
     return traced_results
 
@@ -302,11 +306,8 @@ def log_target_dist(observations):
     return _log_likelihood
 
 
-@tf.function
+@tf.function(jit_compile=True)
 def run_mcmc():
-    unconstrained_to_precision = tfb.Blockwise(
-        bijectors=[tfb.Exp(), tfb.Identity(), tfb.Tanh()]
-    )
 
     kernel_list = [(0, kernel_make_fn_parameters),
                    (1, kernel_make_fn_states)]
@@ -334,20 +335,11 @@ if __name__ == '__main__':
     print(f" execute time {end - start}")
     mcmc_trace = mcmc_result.trace_results
     mcmc_state = mcmc_result.states[0]
+    mcmc_states = []
+    mcmc_states.append(mcmc_state[..., 0:1])
+    mcmc_states.append(mcmc_state[..., 1:2])
+    mcmc_states.append(mcmc_state[..., 2:3])
 
     parameter_names = ['noise_std', 'mean', 'coefficients']
-
-    posterior_trace = az.from_dict(
-        posterior={
-            k: np.swapaxes(v, 0, 1) for k, v in zip(parameter_names, mcmc_state)
-        },
-        # sample_stats={k: np.swapaxes(v, 0, 1) for k, v in mcmc_result.items()},
-        observed_data={"observations": observations},
-        coords={"coefficient": np.arange(1)},
-        dims={"intercept": ["coefficient"]},
-    )
-    az.summary(posterior_trace)
-    az.plot_trace(posterior_trace)
-    az.plot_rank(posterior_trace)
     run_pmcmc_diagnostic(mcmc_states=mcmc_state, mcmc_traces=mcmc_trace, observations=true_state,
-                         ssm_model=sv_ssm, sample_sizes=200, parameter_names=parameter_names)
+                         ssm_model=sv_ssm, sample_sizes=100, parameter_names=parameter_names)
