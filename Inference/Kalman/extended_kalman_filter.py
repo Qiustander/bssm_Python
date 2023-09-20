@@ -1,17 +1,20 @@
 import tensorflow as tf
 import tensorflow_probability as tfp
-from tensorflow_probability.python.internal import distribution_util
 from tensorflow_probability.python.distributions import independent
 from tensorflow_probability.python.distributions import mvn_tril
 from tensorflow_probability.python.distributions import normal
 from tensorflow_probability.python.internal import prefer_static
 from tensorflow_probability.python.math import linalg
+from collections import namedtuple
 
 tfd = tfp.distributions
 
+ekf_results = namedtuple(
+    'ExtendedKalmanFilterResults', ['filtered_means', 'filtered_covs',
+                                    'predicted_means', 'predicted_covs', 'log_marginal_likelihood'])
 
-# @tf.function
-def extended_kalman_filter(ssm_model, observations):
+
+def extended_kalman_filter(ssm_model, observations, iterative_num=0):
     """Applies an Extended Kalman Filter to observed data.
 
     The [Extended Kalman Filter](
@@ -64,10 +67,13 @@ def extended_kalman_filter(ssm_model, observations):
         observation_fn_grad=ssm_model.observation_fn_grad,
         observations=observations,
         filtered_means=initial_state, filtered_covs=initial_covariance,
-        predicted_means=initial_state, predicted_covs=initial_covariance)
+        predicted_means=initial_state, predicted_covs=initial_covariance,
+        iterative_num=iterative_num)
 
-    return (filtered_means, filtered_covs,
-            predicted_means, predicted_covs, log_marginal_likelihood)
+    return ekf_results(filtered_means=filtered_means, filtered_covs=filtered_covs,
+                       predicted_means=predicted_means,
+                       predicted_covs=predicted_covs,
+                       log_marginal_likelihood=log_marginal_likelihood)
 
 
 def forward_filter_pass(transition_fn_grad,
@@ -75,8 +81,11 @@ def forward_filter_pass(transition_fn_grad,
                         observation_fn,
                         observation_fn_grad,
                         observations,
-                        filtered_means, filtered_covs,
-                        predicted_means, predicted_covs):
+                        filtered_means,
+                        filtered_covs,
+                        predicted_means,
+                        predicted_covs,
+                        iterative_num):
     """Run the forward pass in extended Kalman filter.
 
     Args:
@@ -106,7 +115,8 @@ def forward_filter_pass(transition_fn_grad,
         transition_fn_grad,
         transition_fn,
         observation_fn,
-        observation_fn_grad)
+        observation_fn_grad,
+        iterative_num)
 
     observations_shape = prefer_static.shape(
         tf.nest.flatten(observations)[0])
@@ -114,13 +124,13 @@ def forward_filter_pass(transition_fn_grad,
 
     (filtered_means, filtered_covs,
      predicted_means, predicted_covs, log_marginal_likelihood, time_step) = tf.scan(update_step_fn,
-                                                                         elems=observations,
-                                                                         initializer=(filtered_means,
-                                                                                      filtered_covs,
-                                                                                      predicted_means,
-                                                                                      predicted_covs,
-                                                                                      dummy_zeros,
-                                                                                      dummy_zeros))
+                                                                                    elems=observations,
+                                                                                    initializer=(filtered_means,
+                                                                                                 filtered_covs,
+                                                                                                 predicted_means,
+                                                                                                 predicted_covs,
+                                                                                                 dummy_zeros,
+                                                                                                 dummy_zeros))
 
     # one-step predicted mean and covariance
     state_prior = transition_fn(time_step[-1], filtered_means[-1, ...])
@@ -141,7 +151,8 @@ def forward_filter_pass(transition_fn_grad,
 def build_forward_filter_step(transition_fn_grad,
                               transition_fn,
                               observation_fn,
-                              observation_fn_grad):
+                              observation_fn_grad,
+                              iterative_num):
     """Build a callable that perform one step for backward smoothing.
 
     Args:
@@ -163,11 +174,12 @@ def build_forward_filter_step(transition_fn_grad,
          predicted_mean,
          predicted_cov,
          log_marginal_likelihood,
-         time_step) = _extended_kalman_filter_one_step(state, observations,
+         time_step) = _extended_kalman_filter_one_step(state=state, observation=observations,
                                                        transition_fn=transition_fn,
                                                        observation_fn=observation_fn,
                                                        transition_jacobian_fn=transition_fn_grad,
-                                                       observation_jacobian_fn=observation_fn_grad)
+                                                       observation_jacobian_fn=observation_fn_grad,
+                                                       iterative_num=iterative_num)
 
         return (filtered_mean,
                 filtered_cov,
@@ -180,8 +192,11 @@ def build_forward_filter_step(transition_fn_grad,
 
 
 def _extended_kalman_filter_one_step(
-        state, observation, transition_fn, observation_fn,
-        transition_jacobian_fn, observation_jacobian_fn):
+        state, observation, iterative_num,
+        transition_fn,
+        observation_fn,
+        transition_jacobian_fn,
+        observation_jacobian_fn):
     """A single step of the EKF.
 
     Args:
@@ -243,11 +258,71 @@ def _extended_kalman_filter_one_step(
         gain_transpose = linalg.hpsd_solve(
             residual_covariance, tmp_obs_cov, cholesky_matrix=chol_residual_cov)
 
-    filtered_mean = predicted_mean + tf.matmul(
+    filtered_mean = predicted_mean + tf.linalg.matvec(
         gain_transpose,
-        (observation - observation_mean)[..., tf.newaxis],
-        transpose_a=True)[..., 0]
+        (observation - observation_mean),
+        transpose_a=True)
 
+    def _loop_body(last_idx, last_diff, last_mean,
+                   last_predicted_jacobian, last_gain_transpose, last_residual_covariance, last_correction):
+        new_idx = last_idx + 1
+
+        predicted_jacobian_iekf = observation_jacobian_fn(time_step, last_mean)
+        tmp_obs_cov_iekf = tf.matmul(predicted_jacobian_iekf, predicted_cov)
+        residual_covariance_iekf = tf.matmul(
+            predicted_jacobian_iekf, tmp_obs_cov_iekf, transpose_b=True) + \
+                                   observation_fn(time_step, last_mean).covariance()
+
+        if observation_size_is_static_and_scalar:
+            gain_transpose_iekf = tmp_obs_cov_iekf / residual_covariance_iekf
+        else:
+            chol_residual_cov_iekf = tf.linalg.cholesky(residual_covariance_iekf)
+            gain_transpose_iekf = linalg.hpsd_solve(
+                residual_covariance_iekf, tmp_obs_cov_iekf, cholesky_matrix=chol_residual_cov_iekf)
+
+        correction = observation - observation_fn(time_step, last_mean).mean() - \
+                     tf.linalg.matvec(predicted_jacobian_iekf, (predicted_mean - last_mean))
+        new_mean = predicted_mean + tf.linalg.matvec(
+            gain_transpose_iekf,
+            correction,
+            transpose_a=True)
+
+        new_diff = tf.reduce_mean((new_mean - last_mean) ** 2)
+
+        return new_idx, new_diff, new_mean, \
+            predicted_jacobian_iekf, gain_transpose_iekf, residual_covariance_iekf, correction
+
+    # inner loop for iterative EKF
+    init_loop = (tf.constant(0., dtype=predicted_mean.dtype),
+                 tf.constant(1., dtype=predicted_mean.dtype),
+                 filtered_mean,
+                 predicted_jacobian,
+                 gain_transpose,
+                 residual_covariance,
+                 observation_mean)
+
+    def _loop_condition(idx, diff, updated_mean,
+                        updated_predicted_jacobian,
+                        updated_gain_transpose, updated_residual_covariance, _):
+        return tf.logical_and(
+            tf.greater(diff, tf.constant(1e-4, dtype=diff.dtype)),
+            tf.less(idx, iterative_num))
+
+    _, _, filtered_mean, predicted_jacobian, \
+        gain_transpose, residual_covariance, \
+        observation_mean = tf.while_loop(cond=_loop_condition,
+                                         body=_loop_body,
+                                         loop_vars=init_loop,
+                                         shape_invariants=(tf.TensorShape([]), tf.TensorShape([]),
+                                                           filtered_mean.shape,
+                                                           predicted_jacobian.shape,
+                                                           gain_transpose.shape,
+                                                           residual_covariance.shape,
+                                                           observation_mean.shape))
+
+    # calculate likelihood
+    # TODO: likelihood not correct for iekf
+    observation_cov = observation_fn(time_step, filtered_mean).covariance()
     tmp_term = -tf.matmul(predicted_jacobian, gain_transpose, transpose_a=True)
     tmp_term = tf.linalg.set_diag(tmp_term, tf.linalg.diag_part(tmp_term) + 1.)
     filtered_cov = (

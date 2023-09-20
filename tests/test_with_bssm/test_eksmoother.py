@@ -35,10 +35,10 @@ class TestExtendedKalmanSmoother:
 
     def test_kffilter_TFP_arexp(self):
         ro.r("""
-        mu <- 0.2
+        mu <- -0.4
         rho <- 0.5
         n <- 150
-        sigma_y <- 0.1
+        sigma_y <- 0.5
         sigma_x <- 1
         x <- numeric(n)
         x[1] <- rnorm(1, mu, sigma_x / sqrt(1 - rho^2))
@@ -68,11 +68,11 @@ class TestExtendedKalmanSmoother:
                                               observation_size=observation_size,
                                               latent_size=1,
                                               initial_state_mean=0.1,
-                                              initial_state_cov=0,
-                                              mu_state=0.2,
+                                              initial_state_cov=1./np.sqrt(1 - 0.5**2),
+                                              mu_state=-0.4,
                                               rho_state=0.5,
                                               state_noise_std=1.,
-                                              obs_noise_std=0.1,
+                                              obs_noise_std=0.5,
                                               nonlinear_type="nlg_ar_exp")
 
         @tf.function
@@ -81,9 +81,9 @@ class TestExtendedKalmanSmoother:
 
         infer_result = run_method()
         # compare smoothed_means
-        tf.debugging.assert_near(r_result[0][50:, ...], infer_result[0].numpy()[50:, ...], atol=1e-0)
+        tf.debugging.assert_near(r_result[0], infer_result[0].numpy(), atol=1e-5)
         # compare smoothed_covs
-        tf.debugging.assert_near(r_result[1][..., 50:], infer_result[1].numpy().transpose(1, 2, 0)[..., 50:], atol=1e-0)
+        tf.debugging.assert_near(r_result[1], infer_result[1].numpy().transpose(1, 2, 0), atol=1e-5)
 
     def test_kffilter_TFP_sinexp(self):
         ro.r("""

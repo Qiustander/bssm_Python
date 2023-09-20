@@ -35,11 +35,11 @@ class TestBootstrapParticleFilter:
 
     def test_kffilter_TFP_arexp(self):
         ro.r("""
-        mu <- -0.2
-        rho <- 0.7
+        mu <- -0.4
+        rho <- 0.5
         n <- 150
-        sigma_y <- 0.1
-        sigma_x <- 0.5
+        sigma_y <- 0.5
+        sigma_x <- 1
         x <- numeric(n)
         x[1] <- rnorm(1, mu, sigma_x / sqrt(1 - rho^2))
         for(i in 2:length(x)) {
@@ -67,11 +67,11 @@ class TestBootstrapParticleFilter:
                                               observation_size=observation_size,
                                               latent_size=1,
                                               initial_state_mean=0.1,
-                                              initial_state_cov=0,
-                                              mu_state=0.2,
-                                              rho_state=0.7,
-                                              state_noise_std=0.5,
-                                              obs_noise_std=0.1,
+                                              initial_state_cov=1./np.sqrt(1 - 0.5**2),
+                                              mu_state=-0.4,
+                                              rho_state=0.5,
+                                              state_noise_std=1.,
+                                              obs_noise_std=0.5,
                                               nonlinear_type="nlg_ar_exp")
 
         @tf.function

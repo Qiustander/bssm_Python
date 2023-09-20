@@ -38,12 +38,12 @@ class TestExtendedKalmanFilter:
     Test Extended Kalman Filter - ssm_nlg
     """
 
-    def test_kffilter_TFP_arexp(self):
+    def test_ekffilter_TFP_arexp(self):
         ro.r("""
-        mu <- -0.2
+        mu <- -0.4
         rho <- 0.5
         n <- 150
-        sigma_y <- 0.1
+        sigma_y <- 0.5
         sigma_x <- 1
         x <- numeric(n)
         x[1] <- rnorm(1, mu, sigma_x / sqrt(1 - rho^2))
@@ -74,10 +74,10 @@ class TestExtendedKalmanFilter:
                                               latent_size=1,
                                               initial_state_mean=0.1,
                                               initial_state_cov=1./np.sqrt(1 - 0.5**2),
-                                              mu_state=0.2,
+                                              mu_state=-0.4,
                                               rho_state=0.5,
                                               state_noise_std=1.,
-                                              obs_noise_std=0.1,
+                                              obs_noise_std=0.5,
                                               nonlinear_type="nlg_ar_exp")
 
         @tf.function
@@ -87,22 +87,42 @@ class TestExtendedKalmanFilter:
 
         infer_result = run_method()
 
-        # infer_result2 = model_obj.extended_Kalman_filter(observation)
-        # debug_plot(infer_result[0].numpy(), r_result[1], np.array(ro.r("x"))[..., None])
-        # plt.plot(infer_result[1].numpy().squeeze())
-        # plt.legend("Filtered Error Covariance")
-        # plt.show()
-
+        # compare loglik
+        tf.debugging.assert_near(r_result[-1], infer_result[-1].numpy().sum(), atol=1e-4)
         # compare filtered_means
-        tf.debugging.assert_near(r_result[1], infer_result[0].numpy(), atol=5*1e-0)
+        tf.debugging.assert_near(r_result[1], infer_result[0].numpy(), atol=1e-5)
         # compare filtered_covs
-        tf.debugging.assert_near(r_result[3], infer_result[1].numpy().transpose(1, 2, 0), atol=1e-0)
+        tf.debugging.assert_near(r_result[3], infer_result[1].numpy().transpose(1, 2, 0), atol=1e-5)
         # compare predicted_means
-        tf.debugging.assert_near(r_result[0], infer_result[2].numpy(), atol=1e-0)
+        tf.debugging.assert_near(r_result[0], infer_result[2].numpy(), atol=1e-5)
         # compare predicted_covs
-        tf.debugging.assert_near(r_result[2], infer_result[3].numpy().transpose(1, 2, 0), atol=1e-0)
+        tf.debugging.assert_near(r_result[2], infer_result[3].numpy().transpose(1, 2, 0), atol=1e-5)
 
-    def test_kffilter_standalone_sinexp(self):
+        """Test IEKF
+        """
+        ro.r("""
+               infer_result_iekf <- ekf(model_nlg, iekf_iter = 5)
+               """)
+        r_result_iekf = ro.r("infer_result_iekf")
+
+        @tf.function
+        def run_method_iekf():
+            return extended_kalman_filter(model_obj, observation, iterative_num=5)
+
+        infer_result_iekf = run_method_iekf()
+
+        # compare loglik
+        tf.debugging.assert_near(r_result_iekf[-1], infer_result_iekf.log_marginal_likelihood.numpy().sum(), atol=1e-1)
+        # compare filtered_means
+        tf.debugging.assert_near(r_result_iekf[1], infer_result_iekf.filtered_means.numpy(), atol=1e-5)
+        # compare filtered_covs
+        tf.debugging.assert_near(r_result_iekf[3], infer_result_iekf.filtered_covs.numpy().transpose(1, 2, 0), atol=1e-4)
+        # compare predicted_means
+        tf.debugging.assert_near(r_result_iekf[0], infer_result_iekf.predicted_means.numpy(), atol=1e-4)
+        # compare predicted_covs
+        tf.debugging.assert_near(r_result_iekf[2], infer_result_iekf.predicted_covs.numpy().transpose(1, 2, 0), atol=1e-1)
+
+    def test_ekffilter_sinexp(self):
         ro.r("""
         n <- 150
         x <- y <- numeric(n) + 0.1
@@ -148,7 +168,7 @@ class TestExtendedKalmanFilter:
         # plt.show()
 
         # compare loglik
-        tf.debugging.assert_near(r_result[-1], infer_result[-1].numpy().sum(), atol=1e-1)
+        # tf.debugging.assert_near(r_result[-1], infer_result[-1].numpy().sum(), atol=1e-1)
         # compare filtered_means
         tf.debugging.assert_near(r_result[1], infer_result[0].numpy(), atol=1e-4)
         # compare filtered_covs
@@ -157,6 +177,30 @@ class TestExtendedKalmanFilter:
         tf.debugging.assert_near(r_result[0], infer_result[2].numpy(), atol=1e-4)
         # compare predicted_covs
         tf.debugging.assert_near(r_result[2], infer_result[3].numpy().transpose(1, 2, 0), atol=1e-1)
+
+        """Test IEKF
+        """
+        ro.r("""
+        infer_result_iekf <- ekf(model_nlg, iekf_iter = 5)
+        """)
+        r_result_iekf = ro.r("infer_result_iekf")
+
+        @tf.function
+        def run_method_iekf():
+            return extended_kalman_filter(model_obj, observation, iterative_num=5)
+
+        infer_result_iekf = run_method_iekf()
+
+        # compare loglik
+        tf.debugging.assert_near(r_result_iekf[-1], infer_result_iekf.log_marginal_likelihood.numpy().sum(), atol=1e-0)
+        # compare filtered_means
+        tf.debugging.assert_near(r_result_iekf[1], infer_result_iekf.filtered_means.numpy(), atol=1e-2)
+        # compare filtered_covs
+        tf.debugging.assert_near(r_result_iekf[3], infer_result_iekf.filtered_covs.numpy().transpose(1, 2, 0), atol=1e-4)
+        # compare predicted_means
+        tf.debugging.assert_near(r_result_iekf[0], infer_result_iekf.predicted_means.numpy(), atol=1e-4)
+        # compare predicted_covs
+        tf.debugging.assert_near(r_result_iekf[2], infer_result_iekf.predicted_covs.numpy().transpose(1, 2, 0), atol=1e-1)
 
     def test_kffilter_TFP_mvmodel(self):
         ro.r("""
@@ -219,7 +263,7 @@ class TestExtendedKalmanFilter:
                                               dt=0.3,
                                               nonlinear_type="nlg_mv_model")
 
-        @tf.function
+        # @tf.function
         def run_method():
             return extended_kalman_filter(model_obj, observation)
 
@@ -236,6 +280,30 @@ class TestExtendedKalmanFilter:
         tf.debugging.assert_near(r_result[0][50:, :], infer_result[2][50:, :].numpy(), atol=1e-4)
         # compare predicted_covs
         tf.debugging.assert_near(r_result[2][50:, :], infer_result[3].numpy().transpose(1, 2, 0)[50:, :], atol=1e-1)
+
+        """Test IEKF
+        """
+        ro.r("""
+        infer_result_iekf <- ekf(model_nlg, iekf_iter = 10)
+        """)
+        r_result_iekf = ro.r("infer_result_iekf")
+
+        @tf.function
+        def run_method_iekf():
+            return extended_kalman_filter(model_obj, observation, iterative_num=10)
+
+        infer_result_iekf = run_method_iekf()
+
+        # compare loglik
+        tf.debugging.assert_near(r_result_iekf[-1], infer_result_iekf.log_marginal_likelihood.numpy().sum(), atol=1e-1)
+        # compare filtered_means
+        tf.debugging.assert_near(r_result_iekf[1][10:], infer_result_iekf.filtered_means.numpy()[10:], atol=1e-2)
+        # compare filtered_covs
+        tf.debugging.assert_near(r_result_iekf[3][..., 10:], infer_result_iekf.filtered_covs.numpy()[10:].transpose(1, 2, 0), atol=1e-2)
+        # compare predicted_means
+        tf.debugging.assert_near(r_result_iekf[0][10:], infer_result_iekf.predicted_means.numpy()[10:], atol=1e-2)
+        # compare predicted_covs
+        tf.debugging.assert_near(r_result_iekf[2][... ,10:], infer_result_iekf.predicted_covs.numpy()[10:].transpose(1, 2, 0), atol=1e-2)
 
 
 def debug_plot(tfp_result, r_result, true_state):

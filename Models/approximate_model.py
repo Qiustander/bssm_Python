@@ -8,6 +8,8 @@ import tensorflow_probability.python.internal.prefer_static as ps
 import tensorflow as tf
 from Models.ssm_nlg import NonlinearSSM
 from collections import namedtuple
+import logging
+logging.basicConfig(level=logging.INFO)
 
 
 class ApproximateModelResults(
@@ -84,7 +86,7 @@ def approximate_model(ssm_model_original,
         # tf.print(f" likelihood {tf.reduce_sum(new_likelihood)}")
         #
         # tf.print(f"new_abs_diff {-new_abs_diff if is_neg else new_abs_diff}")
-        # tf.print(f"new_rel_diff {new_rel_diff}")
+        # tf.print(f             "new_rel_diff {new_rel_diff}")
 
         # go to far with previous mode_estimate, backtrack between mode_estimate_old and mode_estimate
         if new_rel_diff < -conv_tol  and new_abs_diff > abs_tol:
@@ -225,13 +227,12 @@ def _generate_lg_mtx(ssm_model, filtered_means,
 
         approx_state_mtx = ssm_model.transition_fn_grad(time_step, filtered_mean)
         approx_obs_mtx = ssm_model.observation_fn_grad(time_step, predicted_mean)
-
         current_obs_noise = tf.linalg.cholesky(ssm_model.observation_dist(time_step, predicted_mean).covariance())
         current_state_noise = tf.linalg.cholesky(ssm_model.transition_dist(time_step, filtered_mean).covariance())
 
-        approx_state_input = ssm_model.transition_dist(time_step, filtered_mean).mean() \
+        approx_state_input = ssm_model.transition_fn(time_step, filtered_mean) \
                              - tf.linalg.matvec(approx_state_mtx, filtered_mean)
-        approx_obs_input = ssm_model.observation_dist(time_step, predicted_mean).mean() \
+        approx_obs_input = ssm_model.observation_fn(time_step, predicted_mean) \
                            - tf.linalg.matvec(approx_obs_mtx, predicted_mean)
 
         return approx_state_mtx, approx_obs_mtx, current_obs_noise, \
