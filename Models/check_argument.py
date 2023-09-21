@@ -12,13 +12,13 @@ def check_y(x, fill_missing=0., filling=True):
         shape_x (tuple): shape of time series n, p
         x: time series n x p
     """
-
+    if isinstance(x, tf.Tensor):
+        return x
     if type(x) in [float, int]:
         raise TypeError("Scalar is not allowed.")
     elif type(x) in [list, tuple]:
         x = np.array(x)
-    if isinstance(x, tf.Tensor):
-        x = x.numpy()
+
     if np.isinf(x).any():
         raise TypeError("Argument 'y' must contain only finite or NA values.")
     if not np.isnan(x).all():
@@ -68,7 +68,7 @@ def check_rho(x):
         elif type(x) in [list, tuple]:
             x = np.array(x)
         elif isinstance(x, tf.Tensor):
-            x = x.numpy()
+            return x
     except:
         raise TypeError("Must be numeric")
     if len(x) != 1:
@@ -105,13 +105,14 @@ def check_input_obs(x, p, n):
     Returns:
 
     """
+    if isinstance(x, tf.Tensor):
+        return x
     if x is None:
         return np.zeros([p, ])
     else:
         if type(x) in [float, int, list, np.float32, np.float64]:
             x = np.array(x)
-        if isinstance(x, tf.Tensor):
-            x = x.numpy()
+
         elif not isinstance(x, np.ndarray):
             raise ValueError("input obs must be numeric.")
         x = x.squeeze()
@@ -146,13 +147,13 @@ def check_input_state(x, m, n):
     Returns:
 
     """
+    if isinstance(x, tf.Tensor):
+        return x
     if x is None:
         return np.zeros([m, ])
     else:
         if type(x) in [float, int, list, np.float32, np.float64]:
             x = np.array(x)
-        if isinstance(x, tf.Tensor):
-            x = x.numpy()
         elif not isinstance(x, np.ndarray):
             raise ValueError("input state must be numeric.")
         x = x.squeeze()
@@ -178,12 +179,13 @@ def check_obs_mtx_noise(x, p, n):
     Returns:
 
     """
+    if isinstance(x, tf.Tensor):
+        return x
     if n == 1:
         raise ValueError("Length of time series n must larger than 1.")
     if type(x) in [float, int, list, np.float32, np.float64]:
         x = np.array(x)
-    if isinstance(x, tf.Tensor):
-        x = x.numpy()
+
     elif not isinstance(x, np.ndarray):
         raise ValueError("obs noise std matrix must be numeric.")
     x = x.squeeze()
@@ -224,12 +226,12 @@ def check_state_noise(x, m, n):
     Returns:
 
     """
+    if isinstance(x, tf.Tensor):
+        return x
     if n == 1:
         raise ValueError("Length of time series n must larger than 1.")
     if type(x) in [float, int, list, np.float32, np.float64]:
         x = np.array(x)
-    if isinstance(x, tf.Tensor):
-        x = x.numpy()
     elif not isinstance(x, np.ndarray):
         raise ValueError("state noise must be numeric.")
     x = x.squeeze()
@@ -273,7 +275,8 @@ def check_obs_mtx(x, p, n, m):
     Returns:
 
     """
-
+    if isinstance(x, tf.Tensor):
+        return x
     def error_case(case):
         if case == 1:
             return "obs matrix must be numeric."
@@ -287,8 +290,7 @@ def check_obs_mtx(x, p, n, m):
             x = np.array(x)
         else:
             raise ValueError(error_case(2))
-    if isinstance(x, tf.Tensor):
-        x = x.numpy()
+
     elif not isinstance(x, np.ndarray):
         raise TypeError(error_case(1))
     if len(x.shape) == 3 and x.shape[-1] == 1:  # p m 1,
@@ -332,7 +334,8 @@ def check_state_mtx(x, m, n):
         x: m x m  or m x m x n
 
     """
-
+    if isinstance(x, tf.Tensor):
+        return x
     def error_case(case):
         if case == 1:
             return "state matrix must be numeric."
@@ -350,8 +353,7 @@ def check_state_mtx(x, m, n):
             x = np.reshape(np.array(x), (1, 1))
         else:
             raise ValueError(error_case(2))
-    if isinstance(x, tf.Tensor):
-        x = x.numpy()
+
     elif not isinstance(x, np.ndarray):
         raise TypeError(error_case(1))
     if len(x.shape) == 1 and m != 1: raise ValueError(error_case(2))
@@ -384,13 +386,14 @@ def check_prior_mean(x, m):
     Returns:
 
     """
+    if isinstance(x, tf.Tensor):
+        return x
     if x is None:
         x = np.zeros(m)
     else:
         if type(x) in [float, int]:
             x = np.array(x)
-        if isinstance(x, tf.Tensor):
-            x = x.numpy()
+
         elif not isinstance(x, np.ndarray):
             raise TypeError("prior mean must be numeric.")
         if x.size == 1:
@@ -411,13 +414,14 @@ def check_prior_cov(x, m):
     Returns:
 
     """
+    if isinstance(x, tf.Tensor):
+        return x
     if x is None:
         x = np.zeros((m, m))
     else:
         if type(x) in [float, int, list, np.float32, np.float64]:
             x = np.array(x)
-        if isinstance(x, tf.Tensor):
-            x = x.numpy()
+
         elif not isinstance(x, np.ndarray):
             raise TypeError("prior covariance must be numeric.")
 

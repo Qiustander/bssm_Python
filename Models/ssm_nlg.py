@@ -41,6 +41,8 @@ class NonlinearSSM(object):
                  transition_dist,
                  transition_fn,
                  observation_fn,
+                 input_state,
+                 input_obs,
                  observation_fn_grad,
                  transition_fn_grad,
                  initial_state_prior,
@@ -66,12 +68,16 @@ class NonlinearSSM(object):
             self._transition_fn_grad = transition_fn_grad
             self._observation_dist = observation_dist
             self._transition_dist = transition_dist
+            self._input_state = input_state
+            self._input_obs = input_obs
             self._transition_fn = transition_fn
             self._observation_fn = observation_fn
             self.seed = seed
 
             dtype_list = [initial_state_prior,
                           observation_dist,
+                          input_obs,
+                          input_state,
                           transition_dist,
                           observation_fn_grad,
                           transition_fn_grad,
@@ -104,6 +110,14 @@ class NonlinearSSM(object):
     @property
     def transition_dist(self):
         return self._transition_dist
+
+    @property
+    def input_state(self):
+        return self._input_state
+
+    @property
+    def input_obs(self):
+        return self._input_obs
 
     @property
     def observation_fn(self):

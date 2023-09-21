@@ -66,7 +66,7 @@ class TestBootstrapParticleFilter:
         model_obj = NonlinearSSM.create_model(num_timesteps=num_timesteps,
                                               observation_size=observation_size,
                                               latent_size=1,
-                                              initial_state_mean=0.1,
+                                              initial_state_mean=-0.4,
                                               initial_state_cov=1./np.sqrt(1 - 0.5**2),
                                               mu_state=-0.4,
                                               rho_state=0.5,

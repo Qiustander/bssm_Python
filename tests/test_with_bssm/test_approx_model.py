@@ -34,10 +34,10 @@ class TestApproxModel:
 
     def test_approxmodel_arexp(self):
         ro.r("""
-        mu <- -0.2
+        mu <- 0.4
         rho <- 0.5
         n <- 150
-        sigma_y <- 0.1
+        sigma_y <- 0.5
         sigma_x <- 1
         x <- numeric(n)
         x[1] <- rnorm(1, mu, sigma_x / sqrt(1 - rho^2))
@@ -66,14 +66,14 @@ class TestApproxModel:
         model_obj = NonlinearSSM.create_model(num_timesteps=num_timesteps,
                                               observation_size=observation_size,
                                               latent_size=1,
-                                              initial_state_mean=0.1,
+                                              initial_state_mean=0.4,
                                               initial_state_cov=1./np.sqrt(1 - 0.5**2),
-                                              mu_state=0.2,
+                                              mu_state=0.4,
                                               rho_state=0.5,
                                               state_noise_std=1.,
-                                              obs_noise_std=0.1,
+                                              obs_noise_std=0.5,
                                               nonlinear_type="nlg_ar_exp")
-
+        # @tf.function
         def run_method():
 
             return approximate_model(model_obj, observation)
@@ -105,15 +105,15 @@ class TestApproxModel:
         # compare approx observation matrix
         tf.debugging.assert_near(approx_bssm[1], ssm_obs_mtx, atol=5*1e-0)
         # compare approx observation noise
-        tf.debugging.assert_near(approx_bssm[2], ssm_obs_noise, atol=5*1e-0)
+        tf.debugging.assert_near(approx_bssm[2], ssm_obs_noise, atol=5*1e-6)
         # compare approx tranisiton matrix
-        tf.debugging.assert_near(approx_bssm[3], ssm_state_mtx, atol=5*1e-0)
+        tf.debugging.assert_near(approx_bssm[3], ssm_state_mtx, atol=1e-6)
         # compare approx tranisiton noise
-        tf.debugging.assert_near(approx_bssm[4], ssm_state_noise, atol=5*1e-0)
+        tf.debugging.assert_near(approx_bssm[4], ssm_state_noise, atol=1e-6)
         # compare approx initial mean
-        tf.debugging.assert_near(approx_bssm[5], approx_ssm.initial_state_prior.mean().numpy(), atol=5*1e-0)
+        tf.debugging.assert_near(approx_bssm[5], approx_ssm.initial_state_prior.mean().numpy(), atol=1e-6)
         # compare approx initial cov
-        tf.debugging.assert_near(approx_bssm[6], approx_ssm.initial_state_prior.covariance().numpy(), atol=5*1e-0)
+        tf.debugging.assert_near(approx_bssm[6], approx_ssm.initial_state_prior.covariance().numpy(), atol=1e-6)
         # compare approx input obs
         tf.debugging.assert_near(approx_bssm[7], ssm_obs_input, atol=5*1e-0)
         # compare approx input state

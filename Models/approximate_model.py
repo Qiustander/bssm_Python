@@ -167,6 +167,7 @@ def lg_latent_update(ssm_model,
                                                                              lg_latent_estimate,
                                                                              lg_latent_estimate,
                                                                              time_steps_bc)
+    tf.print(approx_state_input[:10])
     approx_ssm = NonlinearSSM.create_model(num_timesteps=ssm_model.num_timesteps,
                                            observation_size=ps.shape(observations)[-1],
                                            latent_size=ssm_model.state_dim,
@@ -199,7 +200,6 @@ def initial_mode_by_ekf(ssm_model,
                                                                              filtered_means,
                                                                              predicted_means,
                                                                              time_steps_bc)
-
     approx_ssm = NonlinearSSM.create_model(num_timesteps=time_steps,
                                            observation_size=obs_dim,
                                            latent_size=state_dim,
