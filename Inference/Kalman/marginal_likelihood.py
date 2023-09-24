@@ -2,9 +2,6 @@ import tensorflow as tf
 import tensorflow_probability as tfp
 from tensorflow_probability.python.internal import prefer_static
 from tensorflow_probability.python.distributions import mvn_tril
-from tensorflow_probability.python.math import linalg
-from tensorflow_probability.python.distributions import independent
-from tensorflow_probability.python.distributions import normal
 
 tfd = tfp.distributions
 
@@ -36,6 +33,14 @@ def marginal_likelihood(ssm_model,
         observation_fn=ssm_model.observation_fn,
         observations=observations,
         filtered_states=latent_states)
+    # add likelihood at first time step
+    state_prior = ssm_model.transition_dist(0, ssm_model.initial_state_prior.mean())
+    first_likelihood = state_prior.log_prob(latent_states[0])
+
+    observation_dist = ssm_model.observation_dist(0, latent_states[0])
+    first_likelihood += observation_dist.log_prob(observations[0])
+
+    log_marginal_likelihood = tf.concat([first_likelihood[tf.newaxis, ...], log_marginal_likelihood], axis=0)
 
     if final_step_only:
         log_marginal_likelihood = tf.reduce_sum(log_marginal_likelihood)
@@ -73,11 +78,17 @@ def forward_pass(transition_fn,
     observations_shape = prefer_static.shape(
         tf.nest.flatten(observations)[0])
     dummy_zeros = tf.zeros(observations_shape[1:-1])
+    # filtered states 0 -> T-1, next filtered states 1 -> T, observation 1 -> T
+    next_filtered_states = tf.roll(filtered_states, shift=-1, axis=0)
+    observations = tf.roll(observations, shift=-1, axis=0)
 
-    log_marginal_likelihood, time_step = tf.scan(update_step_fn, elems=(filtered_states,
-                                                                        observations),
+    log_marginal_likelihood, time_step = tf.scan(update_step_fn, elems=(filtered_states[:-1],
+                                                                        next_filtered_states[:-1],
+                                                                        observations[:-1]),
                                                  initializer=(dummy_zeros,
                                                               tf.cast(dummy_zeros, dtype=tf.int32)))
+
+
     return log_marginal_likelihood
 
 
@@ -137,45 +148,15 @@ def _marignal_likelihood_one_step(state,
     """
     # If observations are scalar, we can avoid some matrix ops.
     current_state = observations_states[0]
+    next_state = observations_states[1]
     observation = observations_states[-1]
-    observation_size_is_static_and_scalar = (observation.shape[-1] == 1)
     time_step = state[-1]
 
-    current_transition_mtx = transition_fn(time_step,
-                                           tf.eye(prefer_static.shape(current_state)[-1]))
-    state_prior = transition_dist(time_step, current_state)
-    current_covariance = state_prior.covariance()
-    predicted_mean = state_prior.mean()
+    state_prior = transition_dist(time_step+1, current_state)
+    log_marginal_likelihood = state_prior.log_prob(next_state)
 
-    predicted_cov = (tf.matmul(
-        current_transition_mtx,
-        tf.matmul(current_covariance, current_transition_mtx, transpose_b=True)) +
-                     state_prior.covariance())
-
-    observation_dist = observation_dist(time_step, predicted_mean)
-    observation_mean = observation_dist.mean()
-    observation_cov = observation_dist.covariance()
-
-    predicted_obs_mtx = observation_fn(time_step,
-                                       tf.eye(prefer_static.shape(current_state)[-1]))
-    tmp_obs_cov = tf.matmul(predicted_obs_mtx, predicted_cov)
-    residual_covariance = tf.matmul(
-        predicted_obs_mtx, tmp_obs_cov, transpose_b=True) + observation_cov
-
-    if observation_size_is_static_and_scalar:
-        # A plain Normal would have event shape `[]`; wrapping with Independent
-        # ensures `event_shape=[1]` as required.
-        predictive_dist = independent.Independent(
-            normal.Normal(loc=observation_mean,
-                          scale=tf.sqrt(residual_covariance[..., 0])),
-            reinterpreted_batch_ndims=1)
-
-    else:
-        predictive_dist = mvn_tril.MultivariateNormalTriL(
-            loc=observation_mean,
-            scale_tril=tf.linalg.cholesky(residual_covariance))
-
-    log_marginal_likelihood = predictive_dist.log_prob(observation)
+    observation_dist = observation_dist(time_step+1, next_state)
+    log_marginal_likelihood += observation_dist.log_prob(observation)
 
     return (log_marginal_likelihood,
             time_step + 1)

@@ -185,11 +185,12 @@ def check_obs_mtx_noise(x, p, n):
         raise ValueError("Length of time series n must larger than 1.")
     if type(x) in [float, int, list, np.float32, np.float64]:
         x = np.array(x)
-
     elif not isinstance(x, np.ndarray):
         raise ValueError("obs noise std matrix must be numeric.")
     x = x.squeeze()
     if p == 1:
+        if np.any(x < 0.):
+            raise ValueError("Only allow positive value of noise std.")
         if not x.shape:
             return x[None, None]
         if (x.size > 1 and x.size != n):
@@ -201,6 +202,8 @@ def check_obs_mtx_noise(x, p, n):
         if not x.shape or x.shape == 1:
             raise ValueError(
                 "obs noise std matrix must be a m x m matrix ")
+        if np.any(np.linalg.eigvals(x) < 0.):
+            raise ValueError("Only allow positive definite matrix")
         if len(x.shape) == 2:
             if x.shape != (p, p):
                 raise ValueError(
@@ -234,9 +237,11 @@ def check_state_noise(x, m, n):
         x = np.array(x)
     elif not isinstance(x, np.ndarray):
         raise ValueError("state noise must be numeric.")
-    x = x.squeeze()
 
+    x = x.squeeze()
     if m == 1:
+        if np.any(x < 0.):
+            raise ValueError("Only allow positive value of noise std.")
         if not x.shape:
             return x[None, None]  # [[scalar]]
         if (x.size > 1 and x.size != n):
@@ -248,6 +253,8 @@ def check_state_noise(x, m, n):
         if not x.shape or x.shape == 1:
             raise ValueError(
                 "state noise std matrix must be a m x x k (k<=m) matrix ")
+        if np.any(np.linalg.eigvals(x) < 0.):
+            raise ValueError("Only allow positive definite matrix")
         if len(x.shape) == 2:
             if x.shape[0] != m or x.shape[-1] > m:
                 raise ValueError(

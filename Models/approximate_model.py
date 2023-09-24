@@ -76,9 +76,12 @@ def approximate_model(ssm_model_original,
         updated_ssm = lg_latent_update(ssm_model=ssm_model_original,
                                        observations=observations,
                                        lg_latent_estimate=result.estimate_latent)
-        lg_latent_estimate_new, _, new_likelihood = ks(updated_ssm, observations)
-
-        new_likelihood = tf.reduce_sum(new_likelihood)
+        lg_latent_estimate_new, _, _ = ks(updated_ssm, observations)
+        new_likelihood = cal_likelihood(ssm_model=updated_ssm,
+                                        observations=observations,
+                                        latent_states=lg_latent_estimate_new,
+                                        final_step_only=True)
+        tf.print(f" likelihood {new_likelihood}")
         new_abs_diff = new_likelihood - result.log_likelihood
         new_abs_diff = -new_abs_diff if new_abs_diff < 0 else new_abs_diff
         new_rel_diff = new_abs_diff / tf.abs(result.log_likelihood)

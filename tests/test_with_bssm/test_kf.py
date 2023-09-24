@@ -8,6 +8,7 @@ from rpy2.robjects.packages import importr
 from Models.ssm_lg import LinearGaussianSSM
 import os.path as pth
 import os
+import matplotlib.pyplot as plt
 
 os.environ["CUDA_VISIBLE_DEVICES"] = "0"
 # gpu = tf.config.list_physical_devices('GPU')
@@ -71,24 +72,25 @@ class TestKalmanFilterULG:
     @pytest.mark.parametrize(
         ("y", "obs_mtx", "obs_mtx_noise", "init_theta", "state_mtx", "state_mtx_noise",
          "prior_mean", "prior_cov", "input_state", "input_obs", "r_result"),
-        [(np.array(ro.r["y"]), np.array(ro.r("Z")), np.array(ro.r("H")), ro.r("""c(1, 0.1, 0.1)"""), np.array(ro.r("T")),
+        [(
+         np.array(ro.r["y"]), np.array(ro.r("Z")), np.array(ro.r("H")), ro.r("""c(1, 0.1, 0.1)"""), np.array(ro.r("T")),
          np.array(ro.r("R")), np.array(ro.r("a1")), np.array(ro.r("P1")), ro.r("""matrix(0, 3, 1)"""),
          np.array([0.]), ro.r["infer_result"]
-          )])
+         )])
     def test_kffilter_lg_TFP(self, y, obs_mtx, obs_mtx_noise, init_theta, state_mtx,
-                       state_mtx_noise, prior_mean, prior_cov, input_state, input_obs, r_result):
+                             state_mtx_noise, prior_mean, prior_cov, input_state, input_obs, r_result):
         r_result = r_result
         size_y, observation = check_y(y)
         num_timesteps, observation_size = size_y
         model_obj = LinearGaussianSSM.create_model(num_timesteps=num_timesteps,
-                                             observation_size=observation_size,
-                                             latent_size=3,
-                                             initial_state_mean=prior_mean,
-                                             initial_state_cov=prior_cov,
-                                             state_noise_std=state_mtx_noise,
-                                             obs_noise_std=obs_mtx_noise,
-                                               obs_mtx=obs_mtx,
-                                               state_mtx=state_mtx)
+                                                   observation_size=observation_size,
+                                                   latent_size=3,
+                                                   initial_state_mean=prior_mean,
+                                                   initial_state_cov=prior_cov,
+                                                   state_noise_std=state_mtx_noise,
+                                                   obs_noise_std=obs_mtx_noise,
+                                                   obs_mtx=obs_mtx,
+                                                   state_mtx=state_mtx)
         infer_result = model_obj.forward_filter(tf.convert_to_tensor(observation, dtype=model_obj.dtype))
         # compare loglik
         tf.debugging.assert_near(r_result[-1], infer_result.log_likelihoods.numpy().sum(), atol=1e-2)
@@ -99,7 +101,8 @@ class TestKalmanFilterULG:
         # compare predicted_means
         tf.debugging.assert_near(r_result[0][1:, ...], infer_result.predicted_means.numpy(), atol=1e-2)
         # compare predicted_covs
-        tf.debugging.assert_near(r_result[2][..., 1:], infer_result.predicted_covs.numpy().transpose(1, 2, 0), atol=1e-2)
+        tf.debugging.assert_near(r_result[2][..., 1:], infer_result.predicted_covs.numpy().transpose(1, 2, 0),
+                                 atol=1e-2)
 
 
 class TestKalmanFilterMLG:
@@ -126,19 +129,19 @@ class TestKalmanFilterMLG:
           ro.r["infer_result"]
           )])
     def test_kffilter_lg_TFP(self, y, obs_mtx, obs_mtx_noise, init_theta, state_mtx,
-                       state_mtx_noise, prior_mean, prior_cov, input_state, input_obs, r_result):
+                             state_mtx_noise, prior_mean, prior_cov, input_state, input_obs, r_result):
         r_result = r_result
         size_y, observation = check_y(y)
         num_timesteps, observation_size = size_y
         model_obj = LinearGaussianSSM.create_model(num_timesteps=num_timesteps,
-                                             observation_size=observation_size,
-                                             latent_size=1,
-                                             initial_state_mean=prior_mean,
-                                             initial_state_cov=prior_cov,
-                                             state_noise_std=state_mtx_noise,
-                                             obs_noise_std=obs_mtx_noise,
-                                             obs_mtx=obs_mtx,
-                                             state_mtx=state_mtx)
+                                                   observation_size=observation_size,
+                                                   latent_size=1,
+                                                   initial_state_mean=prior_mean,
+                                                   initial_state_cov=prior_cov,
+                                                   state_noise_std=state_mtx_noise,
+                                                   obs_noise_std=obs_mtx_noise,
+                                                   obs_mtx=obs_mtx,
+                                                   state_mtx=state_mtx)
 
         infer_result = model_obj.forward_filter(tf.convert_to_tensor(observation, dtype=model_obj.dtype))
         # compare loglik
@@ -150,7 +153,8 @@ class TestKalmanFilterMLG:
         # compare predicted_means
         tf.debugging.assert_near(r_result[0][1:, ...], infer_result.predicted_means.numpy(), atol=1e-2)
         # compare predicted_covs
-        tf.debugging.assert_near(r_result[2][..., 1:], infer_result.predicted_covs.numpy().transpose(1, 2, 0), atol=1e-2)
+        tf.debugging.assert_near(r_result[2][..., 1:], infer_result.predicted_covs.numpy().transpose(1, 2, 0),
+                                 atol=1e-2)
 
 
 class TestKalmanFilterMLG2:
@@ -205,19 +209,19 @@ class TestKalmanFilterMLG2:
           ro.r["infer_result"]
           )])
     def test_kffilter_lg_TFP(self, y, obs_mtx, obs_mtx_noise, init_theta, state_mtx,
-                       state_mtx_noise, prior_mean, prior_cov, input_state, input_obs, r_result):
+                             state_mtx_noise, prior_mean, prior_cov, input_state, input_obs, r_result):
         r_result = r_result
         size_y, observation = check_y(y)
         num_timesteps, observation_size = size_y
         model_obj = LinearGaussianSSM.create_model(num_timesteps=num_timesteps,
-                                             observation_size=observation_size,
-                                             latent_size=6,
-                                             initial_state_mean=prior_mean,
-                                             initial_state_cov=prior_cov,
-                                             state_noise_std=state_mtx_noise,
-                                             obs_noise_std=obs_mtx_noise,
-                                             obs_mtx=obs_mtx,
-                                             state_mtx=state_mtx)
+                                                   observation_size=observation_size,
+                                                   latent_size=6,
+                                                   initial_state_mean=prior_mean,
+                                                   initial_state_cov=prior_cov,
+                                                   state_noise_std=state_mtx_noise,
+                                                   obs_noise_std=obs_mtx_noise,
+                                                   obs_mtx=obs_mtx,
+                                                   state_mtx=state_mtx)
 
         infer_result = model_obj.forward_filter(tf.convert_to_tensor(observation, dtype=model_obj.dtype))
         # compare loglik
@@ -229,5 +233,5 @@ class TestKalmanFilterMLG2:
         # compare predicted_means
         tf.debugging.assert_near(r_result[0][1:, ...], infer_result.predicted_means.numpy(), atol=1e-2)
         # compare predicted_covs
-        tf.debugging.assert_near(r_result[2][..., 1:], infer_result.predicted_covs.numpy().transpose(1, 2, 0), atol=1e-2)
-
+        tf.debugging.assert_near(r_result[2][..., 1:], infer_result.predicted_covs.numpy().transpose(1, 2, 0),
+                                 atol=1e-2)

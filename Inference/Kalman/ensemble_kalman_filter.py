@@ -2,7 +2,7 @@ import tensorflow as tf
 import tensorflow_probability as tfp
 from tensorflow_probability.python.internal import prefer_static
 from tensorflow_probability.python.distributions import mvn_tril
-
+import warnings
 tfd = tfp.distributions
 
 
@@ -74,7 +74,8 @@ def ensemble_kalman_filter(ssm_model, observations, num_particles, dampling=1):
     predicted_means = tf.reduce_mean(
         tf.concat([predicted_particles, state_prior_samples], axis=0), axis=1)
     predicted_covs = tfp.stats.covariance(
-        state_prior_samples, sample_axis=1, event_axis=-1, keepdims=False)
+        tf.concat([predicted_particles, state_prior_samples], axis=0)
+        , sample_axis=1, event_axis=-1, keepdims=False)
 
     return (filtered_means, filtered_covs,
             predicted_means, predicted_covs, log_marginal_likelihood)
@@ -176,27 +177,37 @@ def _ensemble_kalman_filter_one_step(
     Returns:
     updated_state: filtered ensembles
     """
+    last_step_particles = filtered_ensembles[0]
     time_step = filtered_ensembles[-1]
 
     # If observations are scalar, we can avoid some matrix ops.
     observation_size_is_static_and_scalar = (observation.shape[-1] == 1)
 
     ############### Estimation
-    state_prior_samples = tf.vectorized_map(lambda x:
-                                            transition_fn(time_step, x).sample(), filtered_ensembles[0])
+    state_prior_dist = transition_fn(time_step, last_step_particles)
+    state_prior_samples = state_prior_dist.sample()
+    # state_prior_samples = tf.vectorized_map(lambda x:
+    #                                         transition_fn(time_step, x).sample(), filtered_ensembles[0])
 
     ########### Correction
-    correct_samples = tf.vectorized_map(lambda x:
-                                        observation_fn(time_step, x).sample(), state_prior_samples)
+    correct_dist = observation_fn(time_step, state_prior_samples)
+    correct_samples = correct_dist.sample()
+    # correct_samples = tf.vectorized_map(lambda x:
+    #                                     observation_fn(time_step, x).sample(), state_prior_samples)
 
-    # corrected_mean = tf.reduce_mean(correct_samples)
     corrected_cov = _covariance(correct_samples)
+    if not _check_positive_definit(corrected_cov):
+        warnings.warn("Sample covariance matrix not positive definite!")
+        corrected_cov += 1e-10*tf.eye(corrected_cov.shape[-1])
 
     # covariance_between_state_and_predicted_observations
     # Cov(X, G(X))  = (X - μ(X))(G(X) - μ(G(X)))ᵀ
     covariance_xy = tf.nest.map_structure(
         lambda x: _covariance(x, correct_samples),
         state_prior_samples)
+    if not _check_positive_definit(covariance_xy):
+        warnings.warn("Sample between state and predicted observations not positive definite!")
+        covariance_xy += 1e-10*tf.eye(covariance_xy.shape[-1])
 
     # covariance_predicted_observations
     covriance_yy = tf.linalg.LinearOperatorFullMatrix(
@@ -237,13 +248,14 @@ def _ensemble_kalman_filter_one_step(
         new_particles = tf.nest.map_structure(
             lambda x, a: x + dampling * a, state_prior_samples, added_term)
 
-    predicted_observations = observation_fn(time_step, state_prior_samples).mean()
+    # predicted_observations = observation_fn(time_step, state_prior_samples).mean()
+    predicted_observations = correct_dist.mean()
     observation_dist = mvn_tril.MultivariateNormalTriL(
         loc=tf.reduce_mean(predicted_observations, axis=0),  # ensemble mean
         # Cholesky(Cov(G(X)) + Γ), where Cov(..) is the ensemble covariance.
         scale_tril=tf.linalg.cholesky(
             _covariance(predicted_observations) +
-            _linop_covariance(observation_fn(time_step, state_prior_samples)).to_dense()))
+            _linop_covariance(correct_dist).to_dense()))
 
     log_marginal_likelihood = observation_dist.log_prob(observation)
 
@@ -278,7 +290,13 @@ def _covariance(x, y=None):
         y = x
     else:
         y = tf.convert_to_tensor(y, name='y', dtype=x.dtype)
+        y = y - tf.reduce_mean(y, axis=0)
 
     return tf.reduce_mean(tf.linalg.matmul(
         x[..., tf.newaxis],
         y[..., tf.newaxis], adjoint_b=True), axis=0)
+
+
+def _check_positive_definit(cov_mtx):
+    eig_val = tf.linalg.eigvalsh(cov_mtx)
+    return tf.greater(tf.reduce_min(eig_val), tf.constant(0., dtype=eig_val.dtype))

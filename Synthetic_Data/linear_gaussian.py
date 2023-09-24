@@ -8,27 +8,30 @@ Univariate and Multivariate linear Gaussian model
 def gen_data(testcase='multivariate',
              num_timesteps=200, state_dim=1,
              observed_dim=1, obs_mtx_noise=1.1, state_mtx_noise=0.7,
-             transition_matrix=0.6):
+             transition_matrix=0.6, observation_matrix=1.,
+             prior_mean=0., prior_cov=1.0):
 
     if testcase == 'univariate':
         # Univariate
         state_dim = 1
         observed_dim = 1
+        # state_mtx_noise = state_mtx_noise
+        obs_mtx_noise = obs_mtx_noise
+        transition_matrix = transition_matrix
+        observation_matrix = observation_matrix
+        prior_mean = prior_mean
+        prior_cov = prior_cov
+        # prior_cov = np.diag((state_mtx_noise**2/(1. - transition_matrix**2))*np.ones(shape=[state_dim, ]))
+    elif testcase == 'multivariate':
+        # Multivariate
+        # transition_matrix = np.diag(np.random.uniform(low=-0.8, high=0.9, size=[state_dim,]))
+        # state_mtx_noise = np.diag(np.random.uniform(low=0.5, high=1., size=[state_dim, ]))
+        # obs_mtx_noise = np.diag(np.random.uniform(low=0.5, high=1., size=[observed_dim, ]))
+        # observation_matrix = 0.5*np.ones(shape=[observed_dim, state_dim])
         state_mtx_noise = state_mtx_noise
         obs_mtx_noise = obs_mtx_noise
         transition_matrix = transition_matrix
-        observation_matrix = 1.
-        prior_mean = np.zeros(shape=state_dim)
-        prior_cov = np.diag((state_mtx_noise**2/(1. - transition_matrix**2))*np.ones(shape=[state_dim, ]))
-        print(f"true state std {np.sqrt((state_mtx_noise**2/(1. - transition_matrix**2)))}")
-        print(f"true observation std {np.sqrt(obs_mtx_noise**2 + (state_mtx_noise**2/(1. - transition_matrix**2))*observation_matrix**2)}")
-    elif testcase == 'multivariate':
-        # Multivariate
-        transition_matrix = tf.linalg.diag(np.random.uniform(low=-0.8, high=0.9, size=[state_dim,]))
-
-        state_mtx_noise = np.diag(np.random.uniform(low=0.5, high=1., size=[state_dim, ]))
-        obs_mtx_noise = np.diag(np.random.uniform(low=0.5, high=1., size=[observed_dim, ]))
-        observation_matrix = 0.5*np.ones(shape=[observed_dim, state_dim])
+        observation_matrix = observation_matrix
 
         noise_cov = tf.matmul(state_mtx_noise, state_mtx_noise, transpose_b=True)
         prior_mean = np.zeros(shape=state_dim)

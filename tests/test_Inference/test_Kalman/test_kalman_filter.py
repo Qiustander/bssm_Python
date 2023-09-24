@@ -1,120 +1,229 @@
 import types
 from Synthetic_Data.linear_gaussian import gen_data
-from Models.ssm_lg import LinearGaussianSSM
+from Models.ssm_nlg import NonlinearSSM
 import matplotlib.pyplot as plt
 import tensorflow as tf
+import tensorflow_probability as tfp
 import numpy as np
 from Inference.Kalman.kalman_filter import kalman_filter
 
-"""
-Test with Kalman Filter in TFP
-"""
+tfd = tfp.distributions
 
 
 class TestKalmanFilter:
 
-    def test_kffilter_univaraite_lg(self):
-        num_timesteps = 200
+    def test_kffilter_univaraite_constant_dynamic_lg(self):
+        num_timesteps = 50
         state_dim = 1
         observation_dim = 1
         testcase = 'univariate'
-        state_mtx_noise = 0.9
-        obs_mtx_noise = 0.25
-        transition_matrix = 0.6
+        state_mtx_noise = 1e-11
+        obs_mtx_noise = 1e-11
+        transition_matrix = 1.
         observation_matrix = 1.
 
         """
         Generate data 
         """
         ssm_model = gen_data(testcase=testcase, num_timesteps=num_timesteps,
-                             state_dim=state_dim, observed_dim=observation_dim)
+                             state_dim=state_dim, observed_dim=observation_dim,
+                             state_mtx_noise=state_mtx_noise, obs_mtx_noise=obs_mtx_noise,
+                             transition_matrix=transition_matrix, observation_matrix=observation_matrix)
 
-        true_state, observations = ssm_model.simulate()
-
-        tfp_model_obj = LinearGaussianSSM.create_model(num_timesteps=num_timesteps,
-                                                       observation_size=1,
-                                                       latent_size=1,
-                                                       initial_state_mean=np.zeros(shape=state_dim),
-                                                       initial_state_cov=np.diag(state_mtx_noise ** 2 / np.sqrt(
-                                                           1. - transition_matrix ** 2) * np.ones(shape=[state_dim, ])),
-                                                       state_noise_std=state_mtx_noise,
-                                                       obs_noise_std=obs_mtx_noise,
-                                                       obs_mtx=observation_matrix,
-                                                       state_mtx=transition_matrix)
-        infer_result_tfp = tfp_model_obj.forward_filter(tf.convert_to_tensor(observations,
-                                                                             dtype=tfp_model_obj.dtype))
+        true_state, observations = ssm_model.simulate(len_time_step=1.1*num_timesteps)
+        true_state = true_state[-num_timesteps:]
+        observations = observations[-num_timesteps:]
 
         @tf.function
         def run_kf():
             return kalman_filter(ssm_model=ssm_model,
-                                     observations=observations)
+                                 observations=observations)
 
         infer_result = run_kf()
 
-        # compare loglik
-        tf.debugging.assert_near(infer_result[-1], infer_result_tfp.log_likelihoods, atol=1e-6)
-        # compare filtered_means
-        tf.debugging.assert_near(infer_result[0], infer_result_tfp.filtered_means, atol=1e-6)
-        # compare filtered_covs
-        tf.debugging.assert_near(infer_result[1], infer_result_tfp.filtered_covs, atol=1e-6)
-        # compare predicted_means
-        tf.debugging.assert_near(infer_result[2], infer_result_tfp.predicted_means, atol=1e-6)
-        # compare predicted_covs
-        tf.debugging.assert_near(infer_result[3], infer_result_tfp.predicted_covs, atol=1e-6)
+        tf.debugging.assert_shapes([(infer_result[0], (num_timesteps, state_dim)), # filtered_means
+                                    (infer_result[1], (num_timesteps, state_dim, state_dim)), # filtered_covs
+                                    (infer_result[2], (num_timesteps, state_dim)), # predicted_means
+                                    (infer_result[3], (num_timesteps, state_dim, state_dim)),# predicted_covs
+                                        ])
 
-    def test_kffilter_multivaraite_lg(self):
-        num_timesteps = 200
-        state_dim = 5
-        observation_dim = 3
+        # constant state, must converge to this point
+        tf.debugging.assert_near(infer_result[0], true_state, atol=1e-6)
+        tf.debugging.assert_near(infer_result[2], true_state, atol=1e-6)
+        # covariance would not change
+        diff_operation = tf.experimental.numpy.diff(infer_result[1], n=1, axis=0)
+        tf.debugging.assert_near(diff_operation, tf.zeros_like(diff_operation), atol=1e-6)
+
+        diff_operation = tf.experimental.numpy.diff(infer_result[3], n=1, axis=0)
+        tf.debugging.assert_near(diff_operation, tf.zeros_like(diff_operation), atol=1e-6)
+
+        tf.debugging.assert_shapes([(infer_result[0], (num_timesteps, state_dim)), # filtered_means
+                                    (infer_result[1], (num_timesteps, state_dim, state_dim)), # filtered_covs
+                                    (infer_result[2], (num_timesteps, state_dim)), # predicted_means
+                                    (infer_result[3], (num_timesteps, state_dim, state_dim)),# predicted_covs
+                                        ])
+
+    def test_kffilter_multivaraite_constant_dynamic_lg(self):
+        num_timesteps = 50
+        state_dim = 4
+        observation_dim = 4
         testcase = 'multivariate'
 
         """
         Generate data 
         """
+        transition_matrix = np.diag(np.random.uniform(low=0.99, high=0.99, size=[state_dim, ]))
+        state_mtx_noise = np.diag(np.random.uniform(low=1e-10, high=1e-10, size=[state_dim, ]))
+        obs_mtx_noise = np.diag(np.random.uniform(low=1e-10, high=1e-10, size=[observation_dim, ]))
+        observation_matrix = np.ones(shape=[observation_dim, state_dim])
+
         ssm_model = gen_data(testcase=testcase, num_timesteps=num_timesteps,
-                             state_dim=state_dim, observed_dim=observation_dim)
-        np.random.seed(seed=123)
-
-        transition_matrix = tf.linalg.diag(np.random.uniform(low=-0.8, high=0.9, size=[state_dim,]))
-        state_mtx_noise = np.diag(np.random.uniform(low=0.5, high=1., size=[state_dim, ]))
-        obs_mtx_noise = np.diag(np.random.uniform(low=0.5, high=1., size=[observation_dim, ]))
-        observation_matrix = 0.5*np.ones(shape=[observation_dim, state_dim])
-        noise_cov = tf.matmul(state_mtx_noise, state_mtx_noise, transpose_b=True)
-        prior_mean = np.zeros(shape=state_dim)
-        operator_coeff = tf.linalg.LinearOperatorFullMatrix(transition_matrix)
-        prior_cov = tf.linalg.matvec(tf.linalg.inv(tf.eye(state_dim ** 2, dtype=noise_cov.dtype) -
-                                                       tf.linalg.LinearOperatorKronecker(
-                                                           [operator_coeff, operator_coeff]).to_dense()),
-                                         tf.reshape(noise_cov, [-1]))
-        prior_cov = tf.reshape(prior_cov, [state_dim, state_dim]).numpy()
-
+                             state_dim=state_dim, observed_dim=observation_dim,
+                             state_mtx_noise=state_mtx_noise, obs_mtx_noise=obs_mtx_noise,
+                             transition_matrix=transition_matrix, observation_matrix=observation_matrix)
         true_state, observations = ssm_model.simulate()
 
-        tfp_model_obj = LinearGaussianSSM.create_model(num_timesteps=num_timesteps,
-                                                       observation_size=observation_dim,
-                                                       latent_size=state_dim,
-                                                       initial_state_mean=prior_mean,
-                                                       initial_state_cov=prior_cov,
-                                                       state_noise_std=state_mtx_noise,
-                                                       obs_noise_std=obs_mtx_noise,
-                                                       obs_mtx=observation_matrix,
-                                                       state_mtx=transition_matrix)
-        infer_result_tfp = tfp_model_obj.forward_filter(tf.convert_to_tensor(observations,
-                                                                             dtype=tfp_model_obj.dtype))
         @tf.function
         def run_kf():
             return kalman_filter(ssm_model=ssm_model,
-                                     observations=observations)
+                                 observations=observations)
 
         infer_result = run_kf()
 
-        # compare loglik
-        tf.debugging.assert_near(infer_result[-1][5:], infer_result_tfp.log_likelihoods[5:], atol=1e-6)
-        # compare filtered_means
-        tf.debugging.assert_near(infer_result[0][5:], infer_result_tfp.filtered_means[5:], atol=1e-6)
-        # compare filtered_covs
-        tf.debugging.assert_near(infer_result[1][5:], infer_result_tfp.filtered_covs[5:], atol=1e-6)
-        # compare predicted_means
-        tf.debugging.assert_near(infer_result[2][5:], infer_result_tfp.predicted_means[5:], atol=1e-6)
-        # compare predicted_covs
-        tf.debugging.assert_near(infer_result[3][5:], infer_result_tfp.predicted_covs[5:], atol=1e-6)
+        # constant state, must converge to this point
+        tf.debugging.assert_near(infer_result[0], true_state, atol=1e-6)
+        tf.debugging.assert_near(infer_result[2], true_state, atol=1e-6)
+        # covariance would not change
+        diff_operation = tf.experimental.numpy.diff(infer_result[1], n=1, axis=0)
+        tf.debugging.assert_near(diff_operation, tf.zeros_like(diff_operation), atol=1e-6)
+
+        diff_operation = tf.experimental.numpy.diff(infer_result[3], n=1, axis=0)
+        tf.debugging.assert_near(diff_operation, tf.zeros_like(diff_operation), atol=1e-6)
+
+        tf.debugging.assert_shapes([(infer_result[0], (num_timesteps, state_dim)), # filtered_means
+                                    (infer_result[1], (num_timesteps, state_dim, state_dim)), # filtered_covs
+                                    (infer_result[2], (num_timesteps, state_dim)), # predicted_means
+                                    (infer_result[3], (num_timesteps, state_dim, state_dim)),# predicted_covs
+                                        ])
+
+    def test_kffilter_bad_init_estimate(self):
+        # bad initialization would converge to true states
+        num_timesteps = 50
+        state_dim = 1
+        observation_dim = 1
+        testcase = 'univariate'
+        state_mtx_noise = 0.5
+        obs_mtx_noise = 1e-2
+        transition_matrix = 0.6
+        observation_matrix = 1.
+
+        """
+        Generate data 
+        """
+        prior_cov = np.diag((state_mtx_noise ** 2 / (1. - transition_matrix ** 2)) * np.ones(shape=[state_dim, ]))
+        ssm_model = gen_data(testcase=testcase, num_timesteps=num_timesteps,
+                             state_dim=state_dim, observed_dim=observation_dim,
+                             state_mtx_noise=state_mtx_noise, obs_mtx_noise=obs_mtx_noise,
+                             transition_matrix=transition_matrix, observation_matrix=observation_matrix,
+                             prior_mean=0., prior_cov=prior_cov)
+
+        true_state, observations = ssm_model.simulate(len_time_step=1.1 * num_timesteps)
+        true_state = true_state[-num_timesteps:]
+        observations = observations[-num_timesteps:]
+
+        # bad init
+        ssm_model._initial_state_prior = tfd.MultivariateNormalTriL(
+            loc=[100.],
+            scale_tril=[[400.]])
+
+        @tf.function
+        def run_kf():
+            return kalman_filter(ssm_model=ssm_model,
+                                 observations=observations)
+
+        infer_result = run_kf()
+
+        # compare difference between predicted_means and filtered_means
+        tf.debugging.assert_near(infer_result[0], true_state, atol=1e-1)
+
+    def test_kffilter_exact_measurement(self):
+        # small observation noise would make KF rely on exact observation
+        num_timesteps = 50
+        state_dim = 1
+        observation_dim = 1
+        testcase = 'univariate'
+        state_mtx_noise = 0.5
+        obs_mtx_noise = 1e-6
+        transition_matrix = 0.6
+        observation_matrix = 1.
+
+        """
+        Generate data 
+        """
+        prior_cov = np.diag((state_mtx_noise ** 2 / (1. - transition_matrix ** 2)) * np.ones(shape=[state_dim, ]))
+        ssm_model = gen_data(testcase=testcase, num_timesteps=num_timesteps,
+                             state_dim=state_dim, observed_dim=observation_dim,
+                             state_mtx_noise=state_mtx_noise, obs_mtx_noise=obs_mtx_noise,
+                             transition_matrix=transition_matrix, observation_matrix=observation_matrix,
+                             prior_mean=0., prior_cov=prior_cov)
+
+        true_state, observations = ssm_model.simulate(len_time_step=1.1 * num_timesteps)
+        true_state = true_state[-num_timesteps:]
+        observations = observations[-num_timesteps:]
+
+
+
+        @tf.function
+        def run_kf():
+            return kalman_filter(ssm_model=ssm_model,
+                                 observations=observations)
+
+        infer_result = run_kf()
+
+        # compare difference between predicted_means and filtered_means
+        tf.debugging.assert_near(infer_result[0], true_state, atol=1e-4)
+        tf.debugging.assert_near(infer_result[1], tf.zeros_like(infer_result[1]), atol=1e-6)
+
+
+    def test_kffilter_noisy_measurement(self):
+        # large observation noise would make KF do not update
+        num_timesteps = 50
+        state_dim = 1
+        observation_dim = 1
+        testcase = 'univariate'
+        state_mtx_noise = 0.5
+        obs_mtx_noise = 1e5
+        transition_matrix = 0.6
+        observation_matrix = 1.
+
+        """
+        Generate data 
+        """
+        prior_cov = np.diag((state_mtx_noise ** 2 / (1. - transition_matrix ** 2)) * np.ones(shape=[state_dim, ]))
+        ssm_model = gen_data(testcase=testcase, num_timesteps=num_timesteps,
+                             state_dim=state_dim, observed_dim=observation_dim,
+                             state_mtx_noise=state_mtx_noise, obs_mtx_noise=obs_mtx_noise,
+                             transition_matrix=transition_matrix, observation_matrix=observation_matrix,
+                             prior_mean=0., prior_cov=prior_cov)
+
+        true_state, observations = ssm_model.simulate(len_time_step=1.1 * num_timesteps)
+        true_state = true_state[-num_timesteps:]
+        observations = observations[-num_timesteps:]
+
+        ssm_model._initial_state_prior = tfd.MultivariateNormalTriL(
+            loc=[100.],
+            scale_tril=[[1.]])
+
+        @tf.function
+        def run_kf():
+            return kalman_filter(ssm_model=ssm_model,
+                                 observations=observations)
+
+        infer_result = run_kf()
+
+        # covariance matrix does not change
+        diff = tf.experimental.numpy.diff(infer_result[1][10:], n=1, axis=0)
+        tf.debugging.assert_near(diff, tf.zeros_like(diff), atol=1e-5)
+
+        diff = tf.experimental.numpy.diff(infer_result[3][10:], n=1, axis=0)
+        tf.debugging.assert_near(diff, tf.zeros_like(diff), atol=1e-5)

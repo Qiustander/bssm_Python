@@ -290,7 +290,7 @@ def _extended_kalman_filter_one_step(
         new_diff = tf.reduce_mean((new_mean - last_mean) ** 2)
 
         return new_idx, new_diff, new_mean, \
-            predicted_jacobian_iekf, gain_transpose_iekf, residual_covariance_iekf, correction
+            predicted_jacobian_iekf, gain_transpose_iekf, residual_covariance_iekf, observation - correction
 
     # inner loop for iterative EKF
     init_loop = (tf.constant(0., dtype=predicted_mean.dtype),
@@ -331,18 +331,18 @@ def _extended_kalman_filter_one_step(
             tf.matmul(gain_transpose,
                       tf.matmul(observation_cov, gain_transpose), transpose_a=True))
 
-    if observation_size_is_static_and_scalar:
-        # A plain Normal would have event shape `[]`; wrapping with Independent
-        # ensures `event_shape=[1]` as required.
-        predictive_dist = independent.Independent(
-            normal.Normal(loc=observation_mean,
-                          scale=tf.sqrt(residual_covariance[..., 0])),
-            reinterpreted_batch_ndims=1)
-
-    else:
-        predictive_dist = mvn_tril.MultivariateNormalTriL(
-            loc=observation_mean,
-            scale_tril=chol_residual_cov)
+    # if observation_size_is_static_and_scalar:
+    #     # A plain Normal would have event shape `[]`; wrapping with Independent
+    #     # ensures `event_shape=[1]` as required.
+    #     predictive_dist = independent.Independent(
+    #         normal.Normal(loc=observation_mean,
+    #                       scale=tf.sqrt(residual_covariance[..., 0])),
+    #         reinterpreted_batch_ndims=1)
+    #
+    # else:
+    predictive_dist = mvn_tril.MultivariateNormalTriL(
+        loc= observation_mean,
+        scale_tril=tf.linalg.cholesky(residual_covariance))
 
     log_marginal_likelihood = predictive_dist.log_prob(observation)
 

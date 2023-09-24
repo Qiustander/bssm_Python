@@ -225,15 +225,24 @@ def _kalman_filter_one_step(state,
 
     if observation_size_is_static_and_scalar:
         gain_transpose = tmp_obs_cov / residual_covariance
+        # A plain Normal would have event shape `[]`; wrapping with Independent
+        # ensures `event_shape=[1]` as required.
+        predictive_dist = independent.Independent(
+            normal.Normal(loc=observation_mean,
+                          scale=tf.sqrt(residual_covariance[..., 0])),
+            reinterpreted_batch_ndims=1)
     else:
         chol_residual_cov = tf.linalg.cholesky(residual_covariance)
         gain_transpose = linalg.hpsd_solve(
             residual_covariance, tmp_obs_cov, cholesky_matrix=chol_residual_cov)
+        predictive_dist = mvn_tril.MultivariateNormalTriL(
+            loc=observation_mean,
+            scale_tril=chol_residual_cov)
 
-    filtered_mean = predicted_mean + tf.matmul(
+    filtered_mean = predicted_mean + tf.linalg.matvec(
         gain_transpose,
-        (observation - observation_mean)[..., tf.newaxis],
-        transpose_a=True)[..., 0]
+        (observation - observation_mean),
+        transpose_a=True)
 
     tmp_term = -tf.matmul(predicted_obs_mtx, gain_transpose, transpose_a=True)
     tmp_term = tf.linalg.set_diag(tmp_term, tf.linalg.diag_part(tmp_term) + 1.)
@@ -243,20 +252,21 @@ def _kalman_filter_one_step(state,
             tf.matmul(gain_transpose,
                       tf.matmul(observation_cov, gain_transpose), transpose_a=True))
 
-    if observation_size_is_static_and_scalar:
-        # A plain Normal would have event shape `[]`; wrapping with Independent
-        # ensures `event_shape=[1]` as required.
-        predictive_dist = independent.Independent(
-            normal.Normal(loc=observation_mean,
-                          scale=tf.sqrt(residual_covariance[..., 0])),
-            reinterpreted_batch_ndims=1)
-
-    else:
-        predictive_dist = mvn_tril.MultivariateNormalTriL(
-            loc=observation_mean,
-            scale_tril=chol_residual_cov)
-
     log_marginal_likelihood = predictive_dist.log_prob(observation)
+
+    # check positiveness of covariance matrix
+    eig_val = tf.linalg.eigvalsh(filtered_cov)
+    tf.debugging.assert_greater(eig_val,
+                                tf.zeros_like(eig_val),
+                                message=f'filtered covariance not positive definite at time step {time_step}')
+    eig_val = tf.linalg.eigvalsh(predicted_cov)
+    tf.debugging.assert_greater(eig_val,
+                                tf.zeros_like(eig_val),
+                                message=f'predicted covariance not positive definite at time step {time_step}')
+    eig_val = tf.linalg.eigvalsh(residual_covariance)
+    tf.debugging.assert_greater(eig_val,
+                                tf.zeros_like(residual_covariance),
+                                message=f'residual covariance not positive definite at time step {time_step}')
 
     return (filtered_mean,
             filtered_cov,

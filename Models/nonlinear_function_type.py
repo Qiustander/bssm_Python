@@ -81,22 +81,24 @@ def nonlinear_fucntion(function_type,
 
     input_obs = check_input_obs(0., obs_dim, obs_len) if input_obs is None else \
         check_input_obs(input_obs, obs_dim, obs_len)
-    input_state = check_input_state(0., state_dim, obs_len) if input_obs is None else\
+    input_state = check_input_state(0., state_dim, obs_len) if input_obs is None else \
         check_input_state(input_state, state_dim, obs_len)
     input_obs = tf.convert_to_tensor(input_obs, dtype=dtype)
     input_state = tf.convert_to_tensor(input_state, dtype=dtype)
+    input_obs = _process_mtx_tv(input_obs, 1)
+    input_state = _process_mtx_tv(input_state, 1)
 
     if function_type == "nlg_sin_exp":
 
         observation_fn = lambda t, x: tf.cast(tf.stack([tf.exp(x[..., 0])], axis=-1), dtype=dtype)
         observation_dist = lambda t, x: tfd.MultivariateNormalLinearOperator(
-            loc=observation_fn(t, x) + input_obs,
+            loc=observation_fn(t, x) + input_obs(t),
             scale=tf.linalg.LinearOperatorFullMatrix(tf.cast(
                 check_obs_mtx_noise(obs_noise, obs_dim, obs_len), dtype=dtype)))
 
         transition_fn = lambda t, x: tf.cast(tf.stack([tf.sin(x[..., 0])], axis=-1), dtype=dtype)
         transition_dist = lambda t, x: tfd.MultivariateNormalLinearOperator(
-            loc=transition_fn(t, x) + input_state,
+            loc=transition_fn(t, x) + input_state(t),
             scale=tf.linalg.LinearOperatorFullMatrix(tf.cast(
                 check_state_noise(state_noise, state_dim, obs_len), dtype=dtype)))
 
@@ -117,21 +119,16 @@ def nonlinear_fucntion(function_type,
         rho_state = check_rho(rho_state)
         mu_state = check_mu(mu_state)
 
-        # input_obs = check_input_obs(0., obs_dim, obs_len) if not isinstance(input_obs, np.ndarray) else \
-        #     check_input_obs(input_obs, obs_dim, obs_len)
-        # input_state = check_input_state(0., state_dim, obs_len) if not isinstance(input_state, np.ndarray) else \
-        #     check_input_state(input_state, state_dim, obs_len)
-
         observation_fn = lambda t, x: tf.cast(tf.exp(x[..., 0])[..., tf.newaxis], dtype=dtype)
         observation_dist = lambda t, x: tfd.MultivariateNormalLinearOperator(
-            loc=observation_fn(t, x) + input_obs,
+            loc=observation_fn(t, x) + input_obs(t),
             scale=tf.linalg.LinearOperatorFullMatrix(tf.cast(
                 check_obs_mtx_noise(obs_noise, obs_dim, obs_len), dtype=dtype)))
 
         transition_fn = lambda t, x: tf.cast(
             mu_state * (1 - rho_state) + rho_state * x[..., 0][..., tf.newaxis], dtype=dtype)
         transition_dist = lambda t, x: tfd.MultivariateNormalLinearOperator(
-            loc=transition_fn(t, x) + input_state,
+            loc=transition_fn(t, x) + input_state(t),
             scale=tf.linalg.LinearOperatorFullMatrix(tf.cast(
                 check_state_noise(state_noise, state_dim, obs_len), dtype=dtype)))
 
@@ -150,7 +147,7 @@ def nonlinear_fucntion(function_type,
     elif function_type == "stochastic_volatility_mv":
 
         rho_matrix = tf.convert_to_tensor(check_state_mtx(kwargs['rho'], state_dim, obs_len),
-                                                 dtype=dtype)
+                                          dtype=dtype)
         mu_vector = tf.convert_to_tensor(check_input_state(kwargs['mu'], state_dim, obs_len),
                                          dtype=dtype)
         transition_noise_matrix = tf.convert_to_tensor(
@@ -162,12 +159,12 @@ def nonlinear_fucntion(function_type,
         observation_fn = lambda t, x: tf.zeros(x.shape, dtype=x.dtype)
         observation_dist = lambda t, x: tfd.MultivariateNormalTriL(
             loc=observation_fn(t, x),
-            scale_tril=tf.linalg.diag(tf.exp(x/2))
+            scale_tril=tf.linalg.diag(tf.exp(x / 2))
         )
 
         transition_fn = _batch_multiply(rho_matrix_fn)
         transition_dist = lambda t, x: tfd.MultivariateNormalTriL(
-            loc=mu_vector + transition_fn(t, (x-mu_vector)),
+            loc=mu_vector + transition_fn(t, (x - mu_vector)),
             scale_tril=transition_noise_fn(t))
 
         transition_fn_grad = jacobian_fn(transition_fn)
@@ -185,21 +182,16 @@ def nonlinear_fucntion(function_type,
         rho_state = check_rho(kwargs['rho'])
         mu_state = check_mu(kwargs['mu'])
 
-        # input_obs = check_input_obs(0., obs_dim, obs_len) if not isinstance(input_obs, np.ndarray) else \
-        #     check_input_obs(input_obs, obs_dim, obs_len)
-        # input_state = check_input_state(0., state_dim, obs_len) if not isinstance(input_state, np.ndarray) else \
-        #     check_input_state(input_state, state_dim, obs_len)
-
         transition_fn = lambda t, x: tf.cast(
             mu_state * (1 - rho_state) + rho_state * x, dtype=dtype)
         transition_dist = lambda t, x: tfd.MultivariateNormalTriL(
-            loc=transition_fn(t, x) + input_state,
+            loc=transition_fn(t, x) + input_state(t),
             scale_tril=tf.cast(check_state_noise(state_noise, state_dim, obs_len), dtype=dtype))
 
         observation_fn = lambda t, x: tf.zeros(x.shape, dtype=x.dtype)
         observation_dist = lambda t, x: tfd.MultivariateNormalTriL(
-            loc= tf.zeros(x.shape, dtype=x.dtype) + input_obs,
-            scale_tril=tf.linalg.diag(tf.exp(x/2))
+            loc=tf.zeros(x.shape, dtype=x.dtype) + input_obs(t),
+            scale_tril=tf.linalg.diag(tf.exp(x / 2))
         )
 
         transition_fn_grad = jacobian_fn(transition_fn)
@@ -221,11 +213,6 @@ def nonlinear_fucntion(function_type,
         mu_state = check_mu(kwargs['mu'])
         corr_noise = kwargs['phi']
 
-        # input_obs = check_input_obs(0., obs_dim, obs_len) if not isinstance(input_obs, np.ndarray) else \
-        #     check_input_obs(input_obs, obs_dim, obs_len)
-        # input_state = check_input_state(0., state_dim, obs_len) if not isinstance(input_state, np.ndarray) else \
-        #     check_input_state(input_state, state_dim, obs_len)
-
         prior_mean = tf.convert_to_tensor(check_prior_mean(mu_state, state_dim), dtype=dtype)
         prior_cov = tf.convert_to_tensor(check_prior_cov(state_noise ** 2 / (1 - rho_state ** 2), state_dim),
                                          dtype=dtype)
@@ -233,15 +220,16 @@ def nonlinear_fucntion(function_type,
         transition_fn = lambda t, x: tf.cast(
             mu_state * (1 - rho_state) + rho_state * x, dtype=dtype)
         transition_dist = lambda t, x: tfd.MultivariateNormalTriL(
-            loc=transition_fn(t, x) + input_state,
+            loc=transition_fn(t, x) + input_state(t),
             scale_tril=tf.cast(check_state_noise(state_noise, state_dim, obs_len), dtype=dtype))
 
-        observation_fn = lambda t, x_past, x: tf.cond(t ==0,
-                                                      lambda: (x - mu_state)/tf.sqrt(prior_cov),
-                                                      lambda: (x - (mu_state * (1 - rho_state) + rho_state * x_past))/state_noise)
+        observation_fn = lambda t, x_past, x: tf.cond(t == 0,
+                                                      lambda: (x - mu_state) / tf.sqrt(prior_cov),
+                                                      lambda: (x - (mu_state * (
+                                                                  1 - rho_state) + rho_state * x_past)) / state_noise)
         observation_dist = lambda t, x_past, x: tfd.MultivariateNormalTriL(
-            loc=observation_fn(t, x_past, x) + input_obs,
-            scale_tril=tf.exp(0.5*x) * tf.sqrt(1. - corr_noise**2)
+            loc=observation_fn(t, x_past, x) + input_obs(t),
+            scale_tril=tf.exp(0.5 * x) * tf.sqrt(1. - corr_noise ** 2)
         )
 
         transition_fn_grad = jacobian_fn(transition_fn)
@@ -253,17 +241,12 @@ def nonlinear_fucntion(function_type,
 
     elif function_type == "nlg_mv_model":
 
-        input_obs = check_input_obs(0., obs_dim, obs_len) if not isinstance(input_obs, np.ndarray) else \
-            check_input_obs(input_obs, obs_dim, obs_len)
-        input_state = check_input_state(0., state_dim, obs_len) if not isinstance(input_state, np.ndarray) else \
-            check_input_state(input_state, state_dim, obs_len)
-
         # state dim = 4, obs dim = 3
         observation_fn = lambda t, x: tf.cast(tf.stack([x[..., 0] ** 2, x[..., 1] ** 3,
                                                         0.5 * x[..., 2] + 2 * x[..., 3] + x[..., 0] + x[..., 1]],
                                                        axis=-1), dtype=dtype)
         observation_dist = lambda t, x: tfd.MultivariateNormalLinearOperator(
-            loc=observation_fn(t, x) + tf.convert_to_tensor(input_obs, dtype=dtype),
+            loc=observation_fn(t, x) + input_obs(t),
             scale=tf.linalg.LinearOperatorFullMatrix(tf.cast(
                 check_obs_mtx_noise(obs_noise, obs_dim, obs_len), dtype=dtype)))
 
@@ -272,7 +255,7 @@ def nonlinear_fucntion(function_type,
                       0.6 * x[..., 2] + kwargs['dt'] * x[..., 3], 0.6 * x[..., 3] + kwargs['dt'] * x[..., 0]],
                      axis=-1), dtype=dtype)
         transition_dist = lambda t, x: tfd.MultivariateNormalLinearOperator(
-            loc=transition_fn(t, x) + tf.convert_to_tensor(input_state, dtype=dtype),
+            loc=transition_fn(t, x) + input_state(t),
             scale=tf.linalg.LinearOperatorFullMatrix(tf.cast(
                 check_state_noise(state_noise, state_dim, obs_len), dtype=dtype)))
 
@@ -289,20 +272,15 @@ def nonlinear_fucntion(function_type,
 
     elif function_type == "constant_dynamic_univariate_test":
 
-        input_obs = check_input_obs(0., obs_dim, obs_len) if not isinstance(input_obs, np.ndarray) else \
-            check_input_obs(input_obs, obs_dim, obs_len)
-        input_state = check_input_state(0., state_dim, obs_len) if not isinstance(input_state, np.ndarray) else \
-            check_input_state(input_state, state_dim, obs_len)
-
         observation_fn = lambda t, x: tf.cast(tf.stack([x[..., 0]], axis=-1), dtype=dtype)
         observation_dist = lambda t, x: tfd.MultivariateNormalLinearOperator(
-            loc=observation_fn(t, x) + tf.convert_to_tensor(input_obs, dtype=dtype),
+            loc=observation_fn(t, x) + input_obs(t),
             scale=tf.linalg.LinearOperatorFullMatrix(tf.cast(
                 check_obs_mtx_noise(obs_noise, obs_dim, obs_len), dtype=dtype)))
 
         transition_fn = lambda t, x: tf.cast(tf.stack([x[..., 0]], axis=-1), dtype=dtype)
         transition_dist = lambda t, x: tfd.MultivariateNormalLinearOperator(
-            loc=transition_fn(t, x) + tf.convert_to_tensor(input_state, dtype=dtype),
+            loc=transition_fn(t, x) + input_state(t),
             scale=tf.linalg.LinearOperatorFullMatrix(tf.cast(
                 check_state_noise(state_noise, state_dim, obs_len), dtype=dtype)))
 
@@ -319,22 +297,17 @@ def nonlinear_fucntion(function_type,
 
     elif function_type == "constant_dynamic_multivariate_test":
 
-        input_obs = check_input_obs(0., obs_dim, obs_len) if not isinstance(input_obs, np.ndarray) else \
-            check_input_obs(input_obs, obs_dim, obs_len)
-        input_state = check_input_state(0., state_dim, obs_len) if not isinstance(input_state, np.ndarray) else \
-            check_input_state(input_state, state_dim, obs_len)
-
         observation_fn = lambda t, x: tf.cast(tf.stack([x[..., 0], x[..., 1],
-                                                        x[..., 2] + 0.1 * x[..., 3]], axis=-1), dtype=dtype)
+                                                        x[..., 2], 2 * x[..., 3]], axis=-1), dtype=dtype)
         observation_dist = lambda t, x: tfd.MultivariateNormalLinearOperator(
-            loc=observation_fn(t, x) + tf.convert_to_tensor(input_obs, dtype=dtype),
+            loc=observation_fn(t, x) + input_obs(t),
             scale=tf.linalg.LinearOperatorFullMatrix(tf.cast(
                 check_obs_mtx_noise(obs_noise, obs_dim, obs_len), dtype=dtype)))
 
         transition_fn = lambda t, x: tf.cast(tf.stack([x[..., 0], x[..., 1],
                                                        x[..., 2], x[..., 3]], axis=-1), dtype=dtype)
         transition_dist = lambda t, x: tfd.MultivariateNormalLinearOperator(
-            loc=transition_fn(t, x) + tf.convert_to_tensor(input_state, dtype=dtype),
+            loc=transition_fn(t, x) + input_state(t),
             scale=tf.linalg.LinearOperatorFullMatrix(tf.cast(
                 check_state_noise(state_noise, state_dim, obs_len), dtype=dtype)))
 
@@ -360,17 +333,10 @@ def nonlinear_fucntion(function_type,
         observation_noise_matrix = tf.convert_to_tensor(
             check_obs_mtx_noise(obs_noise, obs_dim, obs_len), dtype=dtype)
 
-        # input_obs = check_input_obs(0., obs_dim, obs_len) if not isinstance(input_obs, np.ndarray) else \
-        #     check_input_obs(input_obs, obs_dim, obs_len)
-        # input_state = check_input_state(0., state_dim, obs_len) if not isinstance(input_state, np.ndarray) else \
-        #     check_input_state(input_state, state_dim, obs_len)
-
         transition_matrix_fn = _process_mtx_tv(transition_matrix, 2)
         observation_matrix_fn = _process_mtx_tv(observation_matrix, 2)
         transition_noise_fn = _process_mtx_tv(transition_noise_matrix, 2)
         observation_noise_fn = _process_mtx_tv(observation_noise_matrix, 2)
-        input_obs = _process_mtx_tv(input_obs, 1)
-        input_state = _process_mtx_tv(input_state, 1)
 
         observation_fn = _batch_multiply(observation_matrix_fn)
         observation_dist = lambda t, x: tfd.MultivariateNormalTriL(
@@ -426,21 +392,9 @@ def _batch_multiply(former_mtx):
     def inner_multiply(t, latter_mtx):
 
         if ps.rank(latter_mtx) == 1:
-            # latter_mtx_reshape = tf.reshape(latter_mtx, [tf.shape(latter_mtx)[-1], -1])
             result = tf.linalg.matvec(former_mtx(t), latter_mtx)
-            # result = tf.squeeze(result, axis=-1)
         else:
-            # if ps.shape(latter_mtx_reshape)[-2] != ps.shape(latter_mtx_reshape)[-1]:
-            #     # batch
-            #     result = tf.einsum('ij, ...j -> ...i', former_mtx(t), latter_mtx_reshape)
-            # else:
-            #     result = tf.matmul(former_mtx(t), latter_mtx_reshape)
-
-            if ps.rank(former_mtx(t)) > 2:
-                # batch
-                result = tf.einsum('...ij, ...j -> ...i', former_mtx(t), latter_mtx)
-            else:
-                result = tf.matmul(former_mtx(t), latter_mtx)
+            result = tf.einsum('...ij, ...j -> ...i', former_mtx(t), latter_mtx)
 
         return result
 

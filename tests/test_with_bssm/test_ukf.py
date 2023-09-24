@@ -5,6 +5,7 @@ from rpy2.robjects import numpy2ri
 from rpy2.robjects.packages import importr
 from Models.ssm_nlg import NonlinearSSM
 from Inference.Kalman.unscented_kalman_filter import unscented_kalman_filter
+from Inference.Kalman.extended_kalman_filter import extended_kalman_filter
 from Models.check_argument import *
 import os.path as pth
 import os
@@ -37,7 +38,7 @@ class TestUnscentedKalmanFilter:
     Test Unscented Kalman Filter - ssm_nlg
     """
 
-    @pytest.mark.skip(reason="need to recompile the bssm ukf")
+    # @pytest.mark.skip(reason="need to recompile the bssm ukf")
     def test_kffilter_TFP_arexp(self):
         ro.r("""
         mu <- -0.4
@@ -85,6 +86,7 @@ class TestUnscentedKalmanFilter:
             return infer_result
 
         infer_result = run_method()
+
         # true_state = np.array(ro.r("x"))[..., None]
         # plt.plot(infer_result[0].numpy(), color='blue', linewidth=1)
         # plt.plot(r_result[1], color='green', linewidth=1)
