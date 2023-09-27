@@ -36,7 +36,7 @@ class TestApproxModel:
         ro.r("""
         mu <- 0.4
         rho <- 0.5
-        n <- 150
+        n <- 50
         sigma_y <- 0.5
         sigma_x <- 1
         x <- numeric(n)
@@ -90,8 +90,8 @@ class TestApproxModel:
             ssm_state_noise.append(approx_ssm.transition_dist(t, [1.]).stddev().numpy())
             ssm_obs_noise.append(approx_ssm.observation_dist(t, [1.]).stddev().numpy())
             ssm_obs_mtx.append(approx_ssm.observation_fn(t, [1.]).numpy())
-            ssm_state_input.append((approx_ssm.observation_dist(t, [1.]).mean().numpy() +
-                                    approx_ssm.observation_dist(t, [-1.]).mean().numpy())/2)
+            ssm_state_input.append((approx_ssm.transition_dist(t, [1.]).mean().numpy() +
+                                    approx_ssm.transition_dist(t, [-1.]).mean().numpy())/2)
             ssm_obs_input.append((approx_ssm.observation_dist(t, [1.]).mean().numpy() +
                                     approx_ssm.observation_dist(t, [-1.]).mean().numpy())/2)
 
@@ -103,26 +103,26 @@ class TestApproxModel:
         ssm_obs_input = np.array(ssm_obs_input)
 
         # compare approx observation matrix
-        tf.debugging.assert_near(approx_bssm[1], ssm_obs_mtx, atol=5*1e-0)
+        tf.debugging.assert_near(approx_bssm[1].squeeze(), ssm_obs_mtx.squeeze(), atol=1e-2)
         # compare approx observation noise
-        tf.debugging.assert_near(approx_bssm[2], ssm_obs_noise, atol=5*1e-6)
+        tf.debugging.assert_near(approx_bssm[2].squeeze(), ssm_obs_noise.squeeze(), atol=1e-6)
         # compare approx tranisiton matrix
-        tf.debugging.assert_near(approx_bssm[3], ssm_state_mtx, atol=1e-6)
+        tf.debugging.assert_near(approx_bssm[3].squeeze(), ssm_state_mtx.squeeze(), atol=1e-6)
         # compare approx tranisiton noise
-        tf.debugging.assert_near(approx_bssm[4], ssm_state_noise, atol=1e-6)
+        tf.debugging.assert_near(approx_bssm[4].squeeze(), ssm_state_noise.squeeze(), atol=1e-6)
         # compare approx initial mean
-        tf.debugging.assert_near(approx_bssm[5], approx_ssm.initial_state_prior.mean().numpy(), atol=1e-6)
+        tf.debugging.assert_near(approx_bssm[5].squeeze(), approx_ssm.initial_state_prior.mean().numpy(), atol=1e-6)
         # compare approx initial cov
-        tf.debugging.assert_near(approx_bssm[6], approx_ssm.initial_state_prior.covariance().numpy(), atol=1e-6)
+        tf.debugging.assert_near(approx_bssm[6].squeeze(), approx_ssm.initial_state_prior.covariance().numpy(), atol=1e-6)
         # compare approx input obs
-        tf.debugging.assert_near(approx_bssm[7], ssm_obs_input, atol=5*1e-0)
+        tf.debugging.assert_near(approx_bssm[7].squeeze(), ssm_obs_input.squeeze(), atol=1e-3)
         # compare approx input state
-        tf.debugging.assert_near(approx_bssm[8], ssm_state_input, atol=5*1e-0)
+        tf.debugging.assert_near(approx_bssm[8].squeeze(), ssm_state_input.squeeze(), atol=1e-3)
 
-    def test_kffilter_standalone_sinexp(self):
+    def test_approxmodel_sinexp(self):
         ro.r("""
-        n <- 150
-        x <- y <- numeric(n) + 0.1
+        n <- 50
+        x <- y <- numeric(n) 
         y[1] <- rnorm(1, exp(x[1]), 0.1)
         for(i in 1:(n-1)) {
          x[i+1] <- rnorm(1, sin(x[i]), 0.1)
@@ -138,10 +138,9 @@ class TestApproxModel:
           log_prior_pdf = pntrs$log_prior_pdf,
           n_states = 1, n_etas = 1, state_names = "state")
 
-        infer_result <- ekf(model_nlg, iekf_iter = 0)
+        approx_result <- gaussian_approx(model_nlg)
             """)
-        r_result = ro.r("infer_result")
-
+        approx_bssm = ro.r("approx_result")
         observation = np.array(ro.r("y"))
         size_y, observation = check_y(observation.astype("float32"))  # return time length and feature numbers
         num_timesteps, observation_size = size_y
@@ -154,26 +153,51 @@ class TestApproxModel:
                                               state_noise_std=0.1,
                                               obs_noise_std=0.2,
                                               nonlinear_type="nlg_sin_exp")
-
-        @tf.function
+        # @tf.function
         def run_method():
-            return extended_kalman_filter(model_obj, observation)
 
-        infer_result = run_method()
-        # debug_plot(infer_result[0].numpy(), r_result[1], np.array(ro.r("x"))[..., None])
-        # # plt.plot(infer_result[1].numpy().squeeze())
-        # plt.show()
+            return approximate_model(model_obj, observation)
 
-        # compare loglik
-        tf.debugging.assert_near(r_result[-1], infer_result[-1].numpy().sum(), atol=1e-1)
-        # compare filtered_means
-        tf.debugging.assert_near(r_result[1], infer_result[0].numpy(), atol=1e-4)
-        # compare filtered_covs
-        tf.debugging.assert_near(r_result[3], infer_result[1].numpy().transpose(1, 2, 0), atol=1e-4)
-        # compare predicted_means
-        tf.debugging.assert_near(r_result[0], infer_result[2].numpy(), atol=1e-4)
-        # compare predicted_covs
-        tf.debugging.assert_near(r_result[2], infer_result[3].numpy().transpose(1, 2, 0), atol=1e-1)
+        approx_ssm, _ = run_method()
+        ssm_state_mtx = []
+        ssm_state_noise = []
+        ssm_obs_noise = []
+        ssm_obs_mtx = []
+        ssm_state_input = []
+        ssm_obs_input = []
+        for t in range(num_timesteps):
+            ssm_state_mtx.append(approx_ssm.transition_fn(t, [1.]).numpy())
+            ssm_state_noise.append(approx_ssm.transition_dist(t, [1.]).stddev().numpy())
+            ssm_obs_noise.append(approx_ssm.observation_dist(t, [1.]).stddev().numpy())
+            ssm_obs_mtx.append(approx_ssm.observation_fn(t, [1.]).numpy())
+            ssm_state_input.append((approx_ssm.transition_dist(t, [1.]).mean().numpy() +
+                                    approx_ssm.transition_dist(t, [-1.]).mean().numpy())/2)
+            ssm_obs_input.append((approx_ssm.observation_dist(t, [1.]).mean().numpy() +
+                                    approx_ssm.observation_dist(t, [-1.]).mean().numpy())/2)
+
+        ssm_state_mtx = np.array(ssm_state_mtx)
+        ssm_state_noise = np.array(ssm_state_noise)
+        ssm_obs_noise = np.array(ssm_obs_noise)
+        ssm_obs_mtx = np.array(ssm_obs_mtx)
+        ssm_state_input = np.array(ssm_state_input)
+        ssm_obs_input = np.array(ssm_obs_input)
+
+        # compare approx observation matrix
+        tf.debugging.assert_near(approx_bssm[1].squeeze(), ssm_obs_mtx.squeeze(), atol=1e-2)
+        # compare approx observation noise
+        tf.debugging.assert_near(approx_bssm[2].squeeze(), ssm_obs_noise.squeeze(), atol=1e-4)
+        # compare approx tranisiton matrix
+        tf.debugging.assert_near(approx_bssm[3].squeeze(), ssm_state_mtx.squeeze(), atol=1e-4)
+        # compare approx tranisiton noise
+        tf.debugging.assert_near(approx_bssm[4].squeeze(), ssm_state_noise.squeeze(), atol=1e-4)
+        # compare approx initial mean
+        tf.debugging.assert_near(approx_bssm[5].squeeze(), approx_ssm.initial_state_prior.mean().numpy(), atol=1e-4)
+        # compare approx initial cov
+        tf.debugging.assert_near(approx_bssm[6].squeeze(), approx_ssm.initial_state_prior.covariance().numpy(), atol=1e-4)
+        # compare approx input obs
+        tf.debugging.assert_near(approx_bssm[7].squeeze(), ssm_obs_input.squeeze(), atol=1e-3)
+        # compare approx input state
+        tf.debugging.assert_near(approx_bssm[8].squeeze(), ssm_state_input.squeeze(), atol=1e-3)
 
     def test_kffilter_TFP_mvmodel(self):
         ro.r("""

@@ -88,7 +88,7 @@ class TestExtendedKalmanSmoother:
     def test_kffilter_TFP_sinexp(self):
         ro.r("""
         n <- 150
-        x <- y <- numeric(n) + 0.1
+        x <- y <- numeric(n) 
         y[1] <- rnorm(1, exp(x[1]), 0.1)
         for(i in 1:(n-1)) {
          x[i+1] <- rnorm(1, sin(x[i]), 0.1)
